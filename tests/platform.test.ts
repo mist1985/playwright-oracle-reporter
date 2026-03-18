@@ -8,7 +8,6 @@ describe("shouldAutoOpenReport", () => {
     delete process.env.CI;
     delete process.env.GITHUB_ACTIONS;
     delete process.env.PW_ORACLE_OPEN_REPORT;
-    delete process.env.PW_AI_OPEN_REPORT;
   });
 
   afterEach(() => {

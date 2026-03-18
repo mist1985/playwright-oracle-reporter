@@ -57,7 +57,7 @@ import type { TestSummary, RunSummary, ReportContext } from "./report/interfaces
 // ═══════════════════════════════════════════════════════════
 
 /** Reporter configuration with sane defaults. */
-interface AIReporterConfig {
+interface OracleReporterConfig {
   /** Directory for generated report output. @default "playwright-oracle-report" */
   outputDir: string;
   /** Directory for history storage. @default ".playwright-oracle-history" */
@@ -83,9 +83,9 @@ interface AIReporterConfig {
  * lifting (HTML rendering, markdown generation, artifact copying,
  * terminal output) is delegated to dedicated modules under `src/report/`.
  */
-export default class PlaywrightAIReporter implements Reporter {
+export default class PlaywrightOracleReporter implements Reporter {
   // ── Configuration & state ──────────────────────────────
-  private readonly config: AIReporterConfig;
+  private readonly config: OracleReporterConfig;
   private startTime = 0;
   private readonly tests: TestSummary[] = [];
   private runSummary: RunSummary;
@@ -106,19 +106,19 @@ export default class PlaywrightAIReporter implements Reporter {
    * @param options - Partial configuration; missing keys fall back to
    *                  environment variables then hard-coded defaults.
    */
-  constructor(options: Partial<AIReporterConfig> = {}) {
+  constructor(options: Partial<OracleReporterConfig> = {}) {
     this.config = {
       outputDir: getEnvVar("OUTPUT_DIR") || options.outputDir || CONFIG_DEFAULTS.OUTPUT_DIR,
       historyDir: getEnvVar("HISTORY_DIR") || options.historyDir || CONFIG_DEFAULTS.HISTORY_DIR,
       openReport: shouldAutoOpenReport(options.openReport),
       runLabel: getEnvVar("RUN_LABEL") || options.runLabel,
       telemetryInterval:
-        PlaywrightAIReporter.parseEnvInt("TELEMETRY_INTERVAL") ??
+        PlaywrightOracleReporter.parseEnvInt("TELEMETRY_INTERVAL") ??
         options.telemetryInterval ??
         CONFIG_DEFAULTS.TELEMETRY_INTERVAL_SECONDS,
       aiMode:
-        (PlaywrightAIReporter.isValidAiMode(getEnvVar("AI_MODE"))
-          ? (getEnvVar("AI_MODE") as AIReporterConfig["aiMode"])
+        (PlaywrightOracleReporter.isValidAiMode(getEnvVar("AI_MODE"))
+          ? (getEnvVar("AI_MODE") as OracleReporterConfig["aiMode"])
           : undefined) ??
         options.aiMode ??
         CONFIG_DEFAULTS.AI_MODE,
@@ -174,7 +174,7 @@ export default class PlaywrightAIReporter implements Reporter {
   /** Called for each test result. */
   onTestEnd(test: TestCase, result: TestResult): void {
     try {
-      const summary = PlaywrightAIReporter.buildTestSummary(test, result);
+      const summary = PlaywrightOracleReporter.buildTestSummary(test, result);
       this.tests.push(summary);
       this.updateRunSummary(result);
 
@@ -539,7 +539,7 @@ export default class PlaywrightAIReporter implements Reporter {
   }
 
   /** Type-guard for valid AI mode strings. */
-  private static isValidAiMode(value: unknown): value is AIReporterConfig["aiMode"] {
+  private static isValidAiMode(value: unknown): value is OracleReporterConfig["aiMode"] {
     return typeof value === "string" && ["auto", "rules", "openai", "off"].includes(value);
   }
 }

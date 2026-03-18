@@ -12,8 +12,7 @@
   },
   "bin": {
     "playwright-oracle-reporter": "dist/cli.js",
-    "pw-oracle": "dist/cli.js",
-    "pw-ai": "dist/cli.js"
+    "pw-oracle": "dist/cli.js"
   },
   "files": [
     "dist",

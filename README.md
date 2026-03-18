@@ -212,8 +212,6 @@ Defaults:
 - Telemetry interval: `3`
 - AI mode: `auto`
 
-Legacy `PW_AI_*` variables are still accepted for backward compatibility.
-
 ## CLI
 
 The package ships with a CLI for report-related tasks.
