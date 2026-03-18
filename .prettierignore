@@ -1,0 +1,8 @@
+dist/
+coverage/
+node_modules/
+*.js
+*.mjs
+pw-ai-report/
+test-output-dir/
+*.bak

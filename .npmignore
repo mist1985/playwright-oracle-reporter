@@ -1,0 +1,4 @@
+*.bak
+coverage/
+tests/
+src/

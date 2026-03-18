@@ -1,0 +1,61 @@
+# Dependencies (NEVER commit these)
+node_modules/
+npm-debug.log*
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist/
+*.tsbuildinfo
+coverage/
+*.tgz
+.nyc_output/
+
+# Playwright test results
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Playwright AI Reporter generated files (gitignored by default)
+pw-ai-report/
+.pw-ai-history/
+playwright-oracle-report/
+.playwright-oracle-history/
+test-output-dir/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.code-workspace
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test artifacts
+screenshots/
+traces/
+videos/
+
+# Temporary files
+*.tmp
+.cache/
+.agent/
+
+# Test counters and state
+.flaky-timing-counter.txt
+.test-state-*.txt
