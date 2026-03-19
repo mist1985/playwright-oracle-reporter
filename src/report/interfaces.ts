@@ -74,6 +74,9 @@ export interface ReportContext {
 export interface ReportConfig {
   readonly outputDir: string;
   readonly telemetryInterval: number;
+  readonly aiMode: "auto" | "rules" | "openai" | "off";
+  readonly openaiConfigured: boolean;
+  readonly openaiAttempted: boolean;
 }
 
 /**

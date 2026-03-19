@@ -43,6 +43,7 @@ import {
   SCHEMA_VERSION,
 } from "./types";
 import { CONFIG_DEFAULTS, getEnvVar } from "./common/constants";
+import { loadDotenvIfAvailable } from "./common/env";
 import { normalizeSupportedPlatform, shouldAutoOpenReport } from "./common/platform";
 
 // ── Report modules (extracted) ─────────────────────────────
@@ -93,6 +94,7 @@ export default class PlaywrightOracleReporter implements Reporter {
   private readonly historyStore: HistoryStore;
   private totalTests = 0;
   private currentTestIndex = 0;
+  private openAIAttempted = false;
 
   // ── Delegates ──────────────────────────────────────────
   private readonly htmlGenerator = new HtmlReportGenerator();
@@ -107,6 +109,8 @@ export default class PlaywrightOracleReporter implements Reporter {
    *                  environment variables then hard-coded defaults.
    */
   constructor(options: Partial<OracleReporterConfig> = {}) {
+    loadDotenvIfAvailable();
+
     this.config = {
       outputDir: getEnvVar("OUTPUT_DIR") || options.outputDir || CONFIG_DEFAULTS.OUTPUT_DIR,
       historyDir: getEnvVar("HISTORY_DIR") || options.historyDir || CONFIG_DEFAULTS.HISTORY_DIR,
@@ -299,6 +303,9 @@ export default class PlaywrightOracleReporter implements Reporter {
       config: {
         outputDir: this.config.outputDir,
         telemetryInterval: this.config.telemetryInterval,
+        aiMode: this.config.aiMode,
+        openaiConfigured: !!process.env.OPENAI_API_KEY,
+        openaiAttempted: this.openAIAttempted,
       },
     };
 
@@ -330,14 +337,32 @@ export default class PlaywrightOracleReporter implements Reporter {
     patterns: PatternOutput,
   ): Promise<OpenAIResponse | null> {
     const apiKey = process.env.OPENAI_API_KEY;
-    const shouldRun =
-      (this.config.aiMode === "openai" || this.config.aiMode === "auto") && !!apiKey;
+    const supportsOpenAI = this.config.aiMode === "openai" || this.config.aiMode === "auto";
     const hasFailures = this.runSummary.failed > 0 || this.runSummary.flaky > 0;
 
-    if (!shouldRun || !hasFailures || this.config.aiMode === "off") {
+    this.openAIAttempted = false;
+
+    if (this.config.aiMode === "off") {
       return null;
     }
 
+    if (!supportsOpenAI) {
+      return null;
+    }
+
+    if (!apiKey) {
+      if (this.config.aiMode === "openai") {
+        this.safeLog("🧠 OpenAI analysis skipped because OPENAI_API_KEY is not set.");
+      }
+      return null;
+    }
+
+    if (!hasFailures) {
+      this.safeLog("🧠 OpenAI analysis skipped because there were no failed or flaky tests.");
+      return null;
+    }
+
+    this.openAIAttempted = true;
     this.safeLog("🧠 Connecting to OpenAI for root cause analysis...");
     const enricher = new OpenAIEnricher(apiKey);
     const response = await enricher.enrich({

@@ -248,7 +248,15 @@ The HTML report is intended for local inspection or CI artifact upload. History 
 
 OpenAI integration is optional. If enabled, the reporter can add higher-level analysis on top of the built-in rule engine.
 
-Example:
+In a project `.env` file:
+
+```bash
+OPENAI_API_KEY=your_api_key
+PW_ORACLE_AI_MODE=openai
+PW_ORACLE_OPENAI_MODEL=gpt-4o-mini
+```
+
+Or export the same variables in your shell before running Playwright:
 
 ```bash
 export OPENAI_API_KEY="your_api_key"
@@ -256,7 +264,7 @@ export PW_ORACLE_AI_MODE="openai"
 export PW_ORACLE_OPENAI_MODEL="gpt-4o-mini"
 ```
 
-If no API key is set, the reporter falls back to local rules-based analysis.
+If no API key is set, the reporter falls back to local rules-based analysis. OpenAI enrichment only runs for failed or flaky runs.
 
 ## Development
 
@@ -296,7 +304,9 @@ Check that:
 
 - `OPENAI_API_KEY` is set
 - `PW_ORACLE_AI_MODE=openai`
+- your `.env` file is in the project root if you rely on file-based env loading
 - your environment is available to the Playwright process that runs the reporter
+- the run had at least one failed or flaky test, because successful runs do not call OpenAI
 
 ### CI report directories are overwriting each other
 

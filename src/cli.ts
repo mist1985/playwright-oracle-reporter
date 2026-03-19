@@ -16,6 +16,7 @@ import { validateConfig, printValidationResults } from "./config/validator";
 import { openFile, getPlatformInfo } from "./common/platform";
 import { getLogger } from "./common/logger";
 import { CONFIG_DEFAULTS, ENV_VARS, EXIT_CODES, getEnvVar } from "./common/constants";
+import { loadDotenvIfAvailable } from "./common/env";
 import {
   FileSystemError,
   getErrorMessage,
@@ -27,10 +28,9 @@ import {
 const logger = getLogger();
 
 // Load environment variables if dotenv is available (optional)
-try {
-  require("dotenv").config();
+if (loadDotenvIfAvailable()) {
   logger.debug("Loaded environment variables from .env");
-} catch (error) {
+} else {
   // dotenv not installed - user can set env vars directly
   logger.debug("dotenv not available, using system environment variables");
 }

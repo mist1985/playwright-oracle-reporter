@@ -126,7 +126,7 @@ ${getHtmlStyles(gradeColor)}
       ${this.renderHeader(runSummary)}
       ${this.renderOverviewView(tests, runSummary)}
       ${this.renderTestsView(tests, runSummary)}
-      ${this.renderInsightsView(openaiResponse, patterns, analysis)}
+      ${this.renderInsightsView(openaiResponse, patterns, analysis, runSummary, config)}
       ${this.renderTelemetryView(metrics, telemetrySummary, correlations, config)}
       ${this.renderFooter()}
     </div>
@@ -350,14 +350,12 @@ ${getClientScript()}
     openaiResponse: OpenAIResponse | null,
     patterns: PatternOutput | null,
     analysis: RulesOutput | null,
+    runSummary: ReportContext["runSummary"],
+    config: ReportContext["config"],
   ): string {
     const openaiSection = openaiResponse
       ? this.renderOpenAISection(openaiResponse)
-      : `<div class="card" style="text-align: center; padding: 3rem">
-           <div style="font-size: 3rem; margin-bottom: 1rem;">🤖</div>
-           <h3>No AI Analysis Available</h3>
-           <p style="color: var(--text-secondary); margin-top: 0.5rem;">Set OPENAI_API_KEY environment variable to enable AI-powered insights.</p>
-         </div>`;
+      : this.renderNoAISection(runSummary, config);
 
     return `
       <div id="view-insights" class="view-section">
@@ -365,6 +363,34 @@ ${getClientScript()}
         ${this.renderPatternsSection(patterns)}
         ${analysis ? this.renderFailedTestsSection(analysis) : ""}
       </div>`;
+  }
+
+  private renderNoAISection(
+    runSummary: ReportContext["runSummary"],
+    config: ReportContext["config"],
+  ): string {
+    const hasFailures = runSummary.failed > 0 || runSummary.flaky > 0;
+
+    let message =
+      "AI insights are generated only when OpenAI is configured and the run contains failed or flaky tests.";
+
+    if (config.aiMode === "off" || config.aiMode === "rules") {
+      message = `AI insights are disabled because aiMode is set to "${config.aiMode}".`;
+    } else if (!config.openaiConfigured) {
+      message = "Set OPENAI_API_KEY to enable AI-powered insights for failed or flaky runs.";
+    } else if (!hasFailures) {
+      message =
+        "OpenAI analysis was skipped because there were no failed or flaky tests in this run.";
+    } else if (config.openaiAttempted) {
+      message =
+        "OpenAI analysis was attempted, but the request failed or timed out. The report still includes rules-based findings.";
+    }
+
+    return `<div class="card" style="text-align: center; padding: 3rem">
+           <div style="font-size: 3rem; margin-bottom: 1rem;">🤖</div>
+           <h3>No AI Analysis Available</h3>
+           <p style="color: var(--text-secondary); margin-top: 0.5rem;">${escapeHtml(message)}</p>
+         </div>`;
   }
 
   private renderOpenAISection(data: OpenAIResponse): string {
