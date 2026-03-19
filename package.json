@@ -1,6 +1,6 @@
 {
   "name": "playwright-oracle-reporter",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Enterprise-ready Playwright reporter with root-cause analysis, flakiness detection, telemetry, and optional OpenAI enrichment",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
