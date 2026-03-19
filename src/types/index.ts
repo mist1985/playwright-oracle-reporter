@@ -3,7 +3,7 @@
  * All rights reserved.
  */
 
-import { getEnvVar } from "../common/constants";
+import { getEnvVar, type SupportedPlatform } from "../common/constants";
 
 /**
  * Schema version for all AI output artifacts.
@@ -105,12 +105,14 @@ export interface NormalizedError {
   snippetLines: string[];
 }
 
+export type ReporterOS = SupportedPlatform | null;
+
 /**
  * Run metadata for context.
  */
 export interface RunMeta {
   runId: string;
-  os: "darwin" | "linux" | null;
+  os: ReporterOS;
   timestamp: number;
   browsers: string[];
 }
@@ -166,7 +168,7 @@ export interface Rule {
 export interface HistoryRecord {
   timestamp: number;
   runId: string;
-  os: "darwin" | "linux" | null;
+  os: ReporterOS;
   projectName: string | null;
   totals: {
     passed: number;
@@ -243,8 +245,9 @@ export interface PatternOutput {
   }>;
   osDiffs: Array<{
     testId: string;
-    darwinStatus: string;
-    linuxStatus: string;
+    darwinStatus?: string;
+    linuxStatus?: string;
+    win32Status?: string;
   }>;
 }
 

@@ -1,4 +1,4 @@
-import { shouldAutoOpenReport } from "../src/common/platform";
+import { normalizeSupportedPlatform, shouldAutoOpenReport } from "../src/common/platform";
 
 describe("shouldAutoOpenReport", () => {
   const originalEnv = process.env;
@@ -36,5 +36,17 @@ describe("shouldAutoOpenReport", () => {
     process.env.PW_ORACLE_OPEN_REPORT = "false";
 
     expect(shouldAutoOpenReport(true)).toBe(true);
+  });
+});
+
+describe("normalizeSupportedPlatform", () => {
+  it("preserves supported platforms including Windows", () => {
+    expect(normalizeSupportedPlatform("darwin")).toBe("darwin");
+    expect(normalizeSupportedPlatform("linux")).toBe("linux");
+    expect(normalizeSupportedPlatform("win32")).toBe("win32");
+  });
+
+  it("returns null for unsupported platforms", () => {
+    expect(normalizeSupportedPlatform("aix")).toBeNull();
   });
 });

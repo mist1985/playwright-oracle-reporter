@@ -43,7 +43,7 @@ import {
   SCHEMA_VERSION,
 } from "./types";
 import { CONFIG_DEFAULTS, getEnvVar } from "./common/constants";
-import { shouldAutoOpenReport } from "./common/platform";
+import { normalizeSupportedPlatform, shouldAutoOpenReport } from "./common/platform";
 
 // ── Report modules (extracted) ─────────────────────────────
 import { HtmlReportGenerator } from "./report/html/html-report-generator";
@@ -244,7 +244,7 @@ export default class PlaywrightOracleReporter implements Reporter {
 
     // ── Rule-based analysis ─────────────────────────────
     const analyzer = new RulesAnalyzer({
-      os: process.platform === "darwin" ? "darwin" : "linux",
+      os: normalizeSupportedPlatform(),
     });
     const analysis = analyzer.analyze(testLites);
 
@@ -418,7 +418,7 @@ export default class PlaywrightOracleReporter implements Reporter {
     return {
       timestamp: this.startTime,
       runId: this.startTime.toString(),
-      os: process.platform === "darwin" ? "darwin" : process.platform === "linux" ? "linux" : null,
+      os: normalizeSupportedPlatform(),
       projectName: null,
       totals: {
         passed: this.runSummary.passed,

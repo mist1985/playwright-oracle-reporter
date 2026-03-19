@@ -5,6 +5,8 @@
 
 import * as os from "os";
 import * as process from "process";
+import type { SupportedPlatform } from "../../common/constants";
+import { normalizeSupportedPlatform } from "../../common/platform";
 
 /**
  * Normalized Telemetry Schema (Enterprise Compliant)
@@ -13,7 +15,7 @@ import * as process from "process";
  */
 export interface NormalizedSystemMetrics {
   timestamp: number; // ms since epoch
-  os: "darwin" | "linux";
+  os: SupportedPlatform | null;
   cpu: {
     load1: number;
     load5: number;
@@ -59,7 +61,7 @@ export async function collectCommonMetrics(): Promise<NormalizedSystemMetrics> {
 
   return {
     timestamp: Date.now(),
-    os: process.platform === "linux" ? "linux" : "darwin", // simplified for known platforms
+    os: normalizeSupportedPlatform(),
     cpu: {
       load1: loadAvg[0],
       load5: loadAvg[1],

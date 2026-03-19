@@ -54,6 +54,15 @@ export function getPlatform(): SupportedPlatform {
 }
 
 /**
+ * Normalize a Node.js platform value to a supported reporter platform.
+ */
+export function normalizeSupportedPlatform(
+  platform: string = process.platform,
+): SupportedPlatform | null {
+  return isSupportedPlatform(platform) ? platform : null;
+}
+
+/**
  * Check if running on Windows
  */
 export function isWindows(): boolean {

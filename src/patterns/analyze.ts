@@ -6,6 +6,7 @@
 import { HistoryRecord, PatternOutput, SCHEMA_VERSION, CAPS, AggregatedTestStat } from "../types";
 import { FlakinessAnalyzer, TestStatistics } from "../insights/flakiness-analyzer";
 import type { TestSummary } from "../report/interfaces";
+import { SUPPORTED_PLATFORMS, type SupportedPlatform } from "../common/constants";
 
 /**
  * Pattern Analyzer
@@ -243,31 +244,64 @@ export class PatternAnalyzer {
     const results: PatternOutput["osDiffs"] = [];
 
     for (const [testId, osMap] of byTestAndOS.entries()) {
-      const darwinStatuses = osMap.get("darwin") || [];
-      const linuxStatuses = osMap.get("linux") || [];
+      const failRates = new Map<SupportedPlatform, number>();
 
-      if (darwinStatuses.length === 0 || linuxStatuses.length === 0) continue;
+      for (const os of SUPPORTED_PLATFORMS) {
+        const statuses = osMap.get(os);
+        if (!statuses || statuses.length === 0) continue;
+        failRates.set(os, this.getFailRate(statuses));
+      }
 
-      const darwinFailRate =
-        darwinStatuses.filter((s) => s === "failed" || s === "timedOut").length /
-        darwinStatuses.length;
-      const linuxFailRate =
-        linuxStatuses.filter((s) => s === "failed" || s === "timedOut").length /
-        linuxStatuses.length;
+      if (failRates.size < 2) continue;
 
-      // Significant diff: one passes mostly, other fails mostly
-      if (
-        (darwinFailRate < 0.2 && linuxFailRate > 0.5) ||
-        (linuxFailRate < 0.2 && darwinFailRate > 0.5)
-      ) {
+      const presentFailRates = Array.from(failRates.entries());
+      let hasSignificantDiff = false;
+      for (let i = 0; i < presentFailRates.length && !hasSignificantDiff; i++) {
+        const [, leftFailRate] = presentFailRates[i];
+        for (let j = i + 1; j < presentFailRates.length; j++) {
+          const [, rightFailRate] = presentFailRates[j];
+          if (this.hasSignificantOsDiff(leftFailRate, rightFailRate)) {
+            hasSignificantDiff = true;
+            break;
+          }
+        }
+      }
+
+      if (hasSignificantDiff) {
         results.push({
           testId,
-          darwinStatus: darwinFailRate < 0.2 ? "mostly passing" : "mostly failing",
-          linuxStatus: linuxFailRate < 0.2 ? "mostly passing" : "mostly failing",
+          darwinStatus: failRates.has("darwin")
+            ? this.getOsStatusLabel(failRates.get("darwin")!)
+            : undefined,
+          linuxStatus: failRates.has("linux")
+            ? this.getOsStatusLabel(failRates.get("linux")!)
+            : undefined,
+          win32Status: failRates.has("win32")
+            ? this.getOsStatusLabel(failRates.get("win32")!)
+            : undefined,
         });
       }
     }
 
     return results;
+  }
+
+  private static getFailRate(statuses: string[]): number {
+    return (
+      statuses.filter((status) => status === "failed" || status === "timedOut").length /
+      statuses.length
+    );
+  }
+
+  private static hasSignificantOsDiff(leftFailRate: number, rightFailRate: number): boolean {
+    return (
+      (leftFailRate < 0.2 && rightFailRate > 0.5) || (rightFailRate < 0.2 && leftFailRate > 0.5)
+    );
+  }
+
+  private static getOsStatusLabel(failRate: number): string {
+    if (failRate < 0.2) return "mostly passing";
+    if (failRate > 0.5) return "mostly failing";
+    return "mixed";
   }
 }

@@ -17,6 +17,7 @@ import {
   SCHEMA_VERSION,
   CAPS,
 } from "../types";
+import { normalizeSupportedPlatform } from "../common/platform";
 
 /**
  * Rules-based Analyzer
@@ -35,9 +36,7 @@ export class RulesAnalyzer {
     this.registry = new RuleRegistry();
     this.runMeta = {
       runId: runMeta?.runId || "unknown",
-      os:
-        runMeta?.os ||
-        (process.platform === "darwin" ? "darwin" : process.platform === "linux" ? "linux" : null),
+      os: runMeta?.os !== undefined ? runMeta.os : normalizeSupportedPlatform(),
       timestamp: runMeta?.timestamp || Date.now(),
       browsers: runMeta?.browsers || [],
     };
