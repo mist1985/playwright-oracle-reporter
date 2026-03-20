@@ -2,6 +2,8 @@
 
 Playwright Oracle Reporter is an npm package for teams that want better failure analysis than the default Playwright output. It adds rule-based diagnostics, flakiness tracking, telemetry correlation, HTML reporting, and optional OpenAI enrichment for failed runs.
 
+<img width="2547" height="1163" alt="image" src="https://github.com/user-attachments/assets/6938cc48-cd12-43db-a0a4-052268df623c" />
+
 ## Table of Contents
 
 - [What It Does](#what-it-does)
