@@ -5,6 +5,6 @@
 
 import type { AICompletionConfig, AIResponse } from "../types";
 
-export interface OpenAIConfig extends AICompletionConfig {}
+export type OpenAIConfig = AICompletionConfig;
 
 export type OpenAIResponse = AIResponse;
