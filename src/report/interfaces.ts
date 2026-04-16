@@ -10,7 +10,7 @@
 
 import type { NormalizedSystemMetrics } from "../telemetry/collectors/common";
 import type { Finding, RulesOutput, PatternOutput, TelemetrySummaryOutput } from "../types";
-import type { OpenAIResponse } from "../ai/openai/types";
+import type { AIProvider, AIResponse } from "../ai/types";
 
 /**
  * Test summary data for report rendering.
@@ -64,7 +64,7 @@ export interface ReportContext {
   readonly patterns: PatternOutput | null;
   readonly telemetrySummary: TelemetrySummaryOutput | null;
   readonly correlations: ReadonlyArray<Finding>;
-  readonly openaiResponse: OpenAIResponse | null;
+  readonly aiResponse: AIResponse | null;
   readonly config: ReportConfig;
 }
 
@@ -74,9 +74,11 @@ export interface ReportContext {
 export interface ReportConfig {
   readonly outputDir: string;
   readonly telemetryInterval: number;
-  readonly aiMode: "auto" | "rules" | "openai" | "off";
+  readonly aiMode: "auto" | "rules" | "openai" | "claude" | "off";
   readonly openaiConfigured: boolean;
-  readonly openaiAttempted: boolean;
+  readonly claudeConfigured: boolean;
+  readonly aiAttempted: boolean;
+  readonly aiProvider: AIProvider | null;
 }
 
 /**
@@ -109,6 +111,6 @@ export interface ITerminalPresenter {
   printTestStep(title: string): void;
   printTestFailure(test: TestSummary): void;
   printSummary(runSummary: RunSummary, reportPath: string): void;
-  printFlakinessAnalysis(patterns: PatternOutput, openaiResponse: OpenAIResponse | null): void;
+  printFlakinessAnalysis(patterns: PatternOutput, aiResponse: AIResponse | null): void;
   printFailedTestsArtifacts(tests: ReadonlyArray<TestSummary>): void;
 }

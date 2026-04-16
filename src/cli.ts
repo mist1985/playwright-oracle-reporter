@@ -128,12 +128,13 @@ Examples:
 
 Environment Variables:
   ${ENV_VARS.OPENAI_API_KEY}          OpenAI API key for enhanced analysis (optional)
+  ${ENV_VARS.ANTHROPIC_API_KEY}       Anthropic API key for Claude analysis (optional)
   ${ENV_VARS.OUTPUT_DIR}         Report output directory (default: ${CONFIG_DEFAULTS.OUTPUT_DIR})
   ${ENV_VARS.HISTORY_DIR}        History directory (default: ${CONFIG_DEFAULTS.HISTORY_DIR})
   ${ENV_VARS.OPEN_REPORT}        Auto-open report after runs (default: true locally, false in CI)
   ${ENV_VARS.RUN_LABEL}          Label for test run (optional)
   ${ENV_VARS.TELEMETRY_INTERVAL} Sampling interval in seconds (default: ${CONFIG_DEFAULTS.TELEMETRY_INTERVAL_SECONDS})
-  ${ENV_VARS.AI_MODE}            AI mode: auto|rules|openai (default: ${CONFIG_DEFAULTS.AI_MODE})
+  ${ENV_VARS.AI_MODE}            AI mode: auto|rules|openai|claude (default: ${CONFIG_DEFAULTS.AI_MODE})
   ${ENV_VARS.LOG_LEVEL}          Log level: DEBUG|INFO|WARN|ERROR (default: INFO)
 
 Documentation:

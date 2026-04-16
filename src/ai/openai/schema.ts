@@ -3,10 +3,10 @@
  * All rights reserved.
  */
 
-import { OpenAIResponse, Confidence } from "./types";
+import type { AIResponse, Confidence } from "../types";
 
 export class SchemaValidator {
-  static validate(json: unknown): OpenAIResponse | null {
+  static validate(json: unknown): AIResponse | null {
     try {
       if (!json || typeof json !== "object") return null;
       const obj = json as Record<string, unknown>;
@@ -79,7 +79,7 @@ export class SchemaValidator {
         }
       }
 
-      return obj as unknown as OpenAIResponse;
+      return obj as unknown as AIResponse;
     } catch {
       return null;
     }

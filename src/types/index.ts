@@ -4,6 +4,7 @@
  */
 
 import { getEnvVar, type SupportedPlatform } from "../common/constants";
+import type { AIProvider } from "../ai/types";
 
 /**
  * Schema version for all AI output artifacts.
@@ -316,7 +317,8 @@ export interface AIFinalOutput {
   patterns: PatternOutput;
   telemetrySummary: TelemetrySummaryOutput;
   runFindings: Finding[];
-  openai: {
+  enrichment: {
+    provider: AIProvider | null;
     enabled: boolean;
     success: boolean;
     pmSummary: string | null;

@@ -178,6 +178,41 @@ export function validateOpenAIKey(value: string): ValidationResult<string> {
 }
 
 /**
+ * Validate Anthropic API key format.
+ *
+ * @param value - API key to validate
+ * @returns Validation result
+ */
+export function validateClaudeKey(value: string): ValidationResult<string> {
+  if (!value || value.trim().length === 0) {
+    return {
+      valid: false,
+      error: "API key is empty",
+    };
+  }
+
+  // Anthropic keys start with 'sk-ant-'
+  if (!value.startsWith("sk-ant-")) {
+    return {
+      valid: false,
+      error: 'API key should start with "sk-ant-"',
+    };
+  }
+
+  if (value.length < 20 || value.length > 160) {
+    return {
+      valid: false,
+      error: "API key length is suspicious",
+    };
+  }
+
+  return {
+    valid: true,
+    value: value.trim(),
+  };
+}
+
+/**
  * Sanitize file path to prevent directory traversal
  *
  * @param filePath - Path to sanitize

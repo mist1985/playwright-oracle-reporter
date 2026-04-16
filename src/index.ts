@@ -31,8 +31,9 @@ import { TelemetrySampler } from "./telemetry/sampler";
 import type { NormalizedSystemMetrics } from "./telemetry/collectors/common";
 import { RulesAnalyzer } from "./ai/analyze";
 import { HistoryStore } from "./history/store";
+import { ClaudeEnricher } from "./ai/claude/enrich";
 import { OpenAIEnricher } from "./ai/openai/enrich";
-import type { OpenAIResponse } from "./ai/openai/types";
+import type { AIProvider, AIResponse } from "./ai/types";
 import { PatternAnalyzer } from "./patterns/analyze";
 import { TelemetrySummarizer } from "./telemetry/summarize";
 import { CorrelationEngine } from "./insights/correlate";
@@ -70,7 +71,12 @@ interface OracleReporterConfig {
   /** Telemetry sampling interval in seconds. @default 3 */
   telemetryInterval: number;
   /** AI analysis mode. @default "auto" */
-  aiMode: "auto" | "rules" | "openai" | "off";
+  aiMode: "auto" | "rules" | "openai" | "claude" | "off";
+}
+
+interface AIEnrichmentResult {
+  provider: AIProvider | null;
+  response: AIResponse | null;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -94,7 +100,8 @@ export default class PlaywrightOracleReporter implements Reporter {
   private readonly historyStore: HistoryStore;
   private totalTests = 0;
   private currentTestIndex = 0;
-  private openAIAttempted = false;
+  private aiAttempted = false;
+  private aiProvider: AIProvider | null = null;
 
   // ── Delegates ──────────────────────────────────────────
   private readonly htmlGenerator = new HtmlReportGenerator();
@@ -204,7 +211,7 @@ export default class PlaywrightOracleReporter implements Reporter {
       const patterns = await PatternAnalyzer.analyze(historyEntries, this.tests);
 
       // ── Analysis & report ─────────────────────────────
-      const openAiResponse = await this.generateReport(metrics, patterns);
+      const aiResponse = await this.generateReport(metrics, patterns);
 
       // ── Terminal summary ──────────────────────────────
       const reportPath = path.join(this.config.outputDir, "index.html");
@@ -214,7 +221,7 @@ export default class PlaywrightOracleReporter implements Reporter {
       this.terminal.printSummary(this.runSummary, reportPath);
 
       if (this.runSummary.flaky > 0 || patterns.flakyTests.length > 0) {
-        this.terminal.printFlakinessAnalysis(patterns, openAiResponse);
+        this.terminal.printFlakinessAnalysis(patterns, aiResponse);
       }
 
       if (this.runSummary.failed > 0) {
@@ -233,12 +240,12 @@ export default class PlaywrightOracleReporter implements Reporter {
   /**
    * Generate the complete report: analysis → JSON → artifacts → HTML → Markdown.
    *
-   * @returns OpenAI response if AI was invoked, otherwise `null`.
+   * @returns AI response if provider enrichment was invoked successfully, otherwise `null`.
    */
   private async generateReport(
     metrics: NormalizedSystemMetrics[],
     patterns: PatternOutput,
-  ): Promise<OpenAIResponse | null> {
+  ): Promise<AIResponse | null> {
     // Ensure output dirs
     this.ensureDir(this.config.outputDir);
     this.ensureDir(path.join(this.config.outputDir, "data"));
@@ -256,8 +263,11 @@ export default class PlaywrightOracleReporter implements Reporter {
     const telemetrySummary = TelemetrySummarizer.summarize(metrics);
     const correlations = CorrelationEngine.correlate(testLites, metrics);
 
-    // ── OpenAI (optional) ───────────────────────────────
-    const openAiResponse = await this.tryOpenAIEnrichment(metrics, patterns);
+    // ── AI enrichment (optional) ───────────────────────
+    const { provider: aiProvider, response: aiResponse } = await this.tryAIEnrichment(
+      metrics,
+      patterns,
+    );
 
     // ── Persist JSON data ───────────────────────────────
     await Promise.all([
@@ -267,7 +277,14 @@ export default class PlaywrightOracleReporter implements Reporter {
       this.writeJSON("data/ai.json", analysis),
       this.writeJSON("data/patterns.json", patterns),
       this.writeJSON("data/telemetry.summary.json", telemetrySummary),
-      ...(openAiResponse ? [this.writeJSON("data/ai.openai.json", openAiResponse)] : []),
+      ...(aiResponse
+        ? [
+            this.writeJSON("data/ai.enrichment.json", {
+              provider: aiProvider,
+              response: aiResponse,
+            }),
+          ]
+        : []),
     ]);
 
     await this.writeJSON("data/ai.final.json", {
@@ -278,12 +295,13 @@ export default class PlaywrightOracleReporter implements Reporter {
       patterns,
       telemetrySummary,
       runFindings: correlations,
-      openai: {
-        enabled: !!openAiResponse,
-        success: !!openAiResponse,
-        pmSummary: openAiResponse?.pm_summary ?? null,
-        hypotheses: openAiResponse?.root_cause_hypotheses.map((h) => h.hypothesis) ?? [],
-        flakyTestsReview: openAiResponse?.algorithmic_findings_review ?? [],
+      enrichment: {
+        provider: aiProvider,
+        enabled: !!aiResponse,
+        success: !!aiResponse,
+        pmSummary: aiResponse?.pm_summary ?? null,
+        hypotheses: aiResponse?.root_cause_hypotheses.map((h) => h.hypothesis) ?? [],
+        flakyTestsReview: aiResponse?.algorithmic_findings_review ?? [],
       },
     });
 
@@ -299,13 +317,15 @@ export default class PlaywrightOracleReporter implements Reporter {
       patterns,
       telemetrySummary,
       correlations,
-      openaiResponse: openAiResponse ?? null,
+      aiResponse: aiResponse ?? null,
       config: {
         outputDir: this.config.outputDir,
         telemetryInterval: this.config.telemetryInterval,
         aiMode: this.config.aiMode,
         openaiConfigured: !!process.env.OPENAI_API_KEY,
-        openaiAttempted: this.openAIAttempted,
+        claudeConfigured: !!process.env.ANTHROPIC_API_KEY,
+        aiAttempted: this.aiAttempted,
+        aiProvider,
       },
     };
 
@@ -313,10 +333,10 @@ export default class PlaywrightOracleReporter implements Reporter {
     await fs.promises.writeFile(path.join(this.config.outputDir, "index.html"), html, "utf-8");
 
     // ── Markdown report ─────────────────────────────────
-    if (openAiResponse) {
+    if (aiResponse) {
       const md = await this.markdownGenerator.generate({
         ...context,
-        openaiResponse: openAiResponse,
+        aiResponse,
       });
       await fs.promises.writeFile(path.join(this.config.outputDir, "ai-analysis.md"), md, "utf-8");
       this.safeLog(
@@ -324,58 +344,105 @@ export default class PlaywrightOracleReporter implements Reporter {
       );
     }
 
-    return openAiResponse;
+    return aiResponse;
   }
 
   // ═══════════════════════════════════════════════════════
   //  Private helpers
   // ═══════════════════════════════════════════════════════
 
-  /** Try to enrich analysis with OpenAI; returns null on skip/failure. */
-  private async tryOpenAIEnrichment(
+  /** Try to enrich analysis with an external AI provider; returns null on skip/failure. */
+  private async tryAIEnrichment(
     metrics: NormalizedSystemMetrics[],
     patterns: PatternOutput,
-  ): Promise<OpenAIResponse | null> {
-    const apiKey = process.env.OPENAI_API_KEY;
-    const supportsOpenAI = this.config.aiMode === "openai" || this.config.aiMode === "auto";
+  ): Promise<AIEnrichmentResult> {
     const hasFailures = this.runSummary.failed > 0 || this.runSummary.flaky > 0;
 
-    this.openAIAttempted = false;
+    this.aiAttempted = false;
+    this.aiProvider = null;
 
-    if (this.config.aiMode === "off") {
-      return null;
-    }
-
-    if (!supportsOpenAI) {
-      return null;
-    }
-
-    if (!apiKey) {
-      if (this.config.aiMode === "openai") {
-        this.safeLog("🧠 OpenAI analysis skipped because OPENAI_API_KEY is not set.");
-      }
-      return null;
+    if (this.config.aiMode === "off" || this.config.aiMode === "rules") {
+      return { provider: null, response: null };
     }
 
     if (!hasFailures) {
-      this.safeLog("🧠 OpenAI analysis skipped because there were no failed or flaky tests.");
-      return null;
+      this.safeLog("🧠 AI analysis skipped because there were no failed or flaky tests.");
+      return { provider: null, response: null };
     }
 
-    this.openAIAttempted = true;
-    this.safeLog("🧠 Connecting to OpenAI for root cause analysis...");
-    const enricher = new OpenAIEnricher(apiKey);
-    const response = await enricher.enrich({
-      run: this.runSummary,
-      tests: this.tests,
-      telemetry: metrics,
-      patterns: patterns.flakyTests as unknown[],
-    });
+    for (const provider of this.resolveAIProviders()) {
+      const apiKey = this.getProviderApiKey(provider);
+      if (!apiKey) {
+        if (this.config.aiMode === provider) {
+          this.safeLog(
+            `🧠 ${this.getProviderLabel(provider)} analysis skipped because ${this.getProviderKeyEnvVar(provider)} is not set.`,
+          );
+        }
+        continue;
+      }
 
-    if (!response) {
-      this.safeLog("⚠️  OpenAI analysis failed or timed out (skipping)");
+      this.aiAttempted = true;
+      this.aiProvider = provider;
+      this.safeLog(
+        `🧠 Connecting to ${this.getProviderLabel(provider)} for root cause analysis...`,
+      );
+
+      const response =
+        provider === "openai"
+          ? await new OpenAIEnricher(apiKey).enrich({
+              run: this.runSummary,
+              tests: this.tests,
+              telemetry: metrics,
+              patterns: patterns.flakyTests as unknown[],
+            })
+          : await new ClaudeEnricher(apiKey).enrich({
+              run: this.runSummary,
+              tests: this.tests,
+              telemetry: metrics,
+              patterns: patterns.flakyTests as unknown[],
+            });
+
+      if (response) {
+        return { provider, response };
+      }
+
+      this.safeLog(
+        `⚠️  ${this.getProviderLabel(provider)} analysis failed or timed out (skipping)`,
+      );
     }
-    return response;
+
+    if (!this.aiAttempted && this.config.aiMode === "auto") {
+      this.safeLog(
+        "🧠 AI analysis skipped because neither OPENAI_API_KEY nor ANTHROPIC_API_KEY is set.",
+      );
+    }
+
+    return { provider: this.aiProvider, response: null };
+  }
+
+  private resolveAIProviders(): AIProvider[] {
+    switch (this.config.aiMode) {
+      case "openai":
+        return ["openai"];
+      case "claude":
+        return ["claude"];
+      case "auto":
+        return ["openai", "claude"];
+      default:
+        return [];
+    }
+  }
+
+  private getProviderApiKey(provider: AIProvider): string | undefined {
+    return provider === "openai" ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY;
+  }
+
+  private getProviderKeyEnvVar(provider: AIProvider): "OPENAI_API_KEY" | "ANTHROPIC_API_KEY" {
+    return provider === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
+  }
+
+  private getProviderLabel(provider: AIProvider): "OpenAI" | "Claude" {
+    return provider === "openai" ? "OpenAI" : "Claude";
   }
 
   /** Build a TestSummary from Playwright's native types. */
@@ -565,6 +632,8 @@ export default class PlaywrightOracleReporter implements Reporter {
 
   /** Type-guard for valid AI mode strings. */
   private static isValidAiMode(value: unknown): value is OracleReporterConfig["aiMode"] {
-    return typeof value === "string" && ["auto", "rules", "openai", "off"].includes(value);
+    return (
+      typeof value === "string" && ["auto", "rules", "openai", "claude", "off"].includes(value)
+    );
   }
 }

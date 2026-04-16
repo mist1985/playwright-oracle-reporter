@@ -23,13 +23,15 @@ function createContext(overrides: Partial<ReportContext> = {}): ReportContext {
     patterns: null,
     telemetrySummary: null,
     correlations: [],
-    openaiResponse: null,
+    aiResponse: null,
     config: {
       outputDir: "playwright-oracle-report",
       telemetryInterval: 3,
       aiMode: "openai",
       openaiConfigured: true,
-      openaiAttempted: false,
+      claudeConfigured: false,
+      aiAttempted: false,
+      aiProvider: null,
     },
     ...overrides,
   };
@@ -42,7 +44,7 @@ describe("HtmlReportGenerator", () => {
     const html = await generator.generate(createContext());
 
     expect(html).toContain(
-      "OpenAI analysis was skipped because there were no failed or flaky tests in this run.",
+      "AI analysis was skipped because there were no failed or flaky tests in this run.",
     );
   });
 
@@ -66,7 +68,9 @@ describe("HtmlReportGenerator", () => {
           telemetryInterval: 3,
           aiMode: "openai",
           openaiConfigured: true,
-          openaiAttempted: true,
+          claudeConfigured: false,
+          aiAttempted: true,
+          aiProvider: "openai",
         },
       }),
     );
@@ -74,5 +78,25 @@ describe("HtmlReportGenerator", () => {
     expect(html).toContain(
       "OpenAI analysis was attempted, but the request failed or timed out. The report still includes rules-based findings.",
     );
+  });
+
+  it("explains how to enable Claude mode when its API key is missing", async () => {
+    const generator = new HtmlReportGenerator();
+
+    const html = await generator.generate(
+      createContext({
+        config: {
+          outputDir: "playwright-oracle-report",
+          telemetryInterval: 3,
+          aiMode: "claude",
+          openaiConfigured: false,
+          claudeConfigured: false,
+          aiAttempted: false,
+          aiProvider: null,
+        },
+      }),
+    );
+
+    expect(html).toContain("Set ANTHROPIC_API_KEY to enable Claude-powered insights");
   });
 });

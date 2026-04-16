@@ -40,12 +40,28 @@ describe("Configuration Validator", () => {
       expect(result.warnings.some((warn) => warn.includes("OPENAI_API_KEY is not set"))).toBe(true);
     });
 
+    it("should warn when Claude mode is set but API key is missing", () => {
+      delete process.env.ANTHROPIC_API_KEY;
+      const result = validateConfig({ aiMode: "claude" });
+      expect(result.warnings.some((warn) => warn.includes("ANTHROPIC_API_KEY is not set"))).toBe(
+        true,
+      );
+    });
+
     it("should warn about invalid API key format", () => {
       const result = validateConfig({
         aiMode: "openai",
         openaiApiKey: "invalid-key",
       });
       expect(result.warnings.some((warn) => warn.includes("format appears invalid"))).toBe(true);
+    });
+
+    it("should warn about invalid Claude API key format", () => {
+      const result = validateConfig({
+        aiMode: "claude",
+        claudeApiKey: "invalid-key",
+      });
+      expect(result.warnings.some((warn) => warn.includes("sk-ant-"))).toBe(true);
     });
 
     it("should include system info", () => {

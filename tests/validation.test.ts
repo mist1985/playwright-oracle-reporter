@@ -9,6 +9,7 @@ import {
   validateAIMode,
   validateTelemetryInterval,
   validateOpenAIKey,
+  validateClaudeKey,
   sanitizeFilePath,
   validatePercentage,
   validateNodeVersion,
@@ -90,6 +91,7 @@ describe("Validation Utilities", () => {
       expect(validateAIMode("auto")).toBe("auto");
       expect(validateAIMode("rules")).toBe("rules");
       expect(validateAIMode("openai")).toBe("openai");
+      expect(validateAIMode("claude")).toBe("claude");
     });
 
     it("should throw for invalid mode", () => {
@@ -144,6 +146,32 @@ describe("Validation Utilities", () => {
 
     it("should throw on null bytes", () => {
       expect(() => sanitizeFilePath("/tmp/file\0.txt")).toThrow(ValidationError);
+    });
+  });
+
+  describe("validateClaudeKey", () => {
+    it("should accept valid key format", () => {
+      const result = validateClaudeKey("sk-ant-api03-" + "a".repeat(40));
+      expect(result.valid).toBe(true);
+      expect(result.value).toBeTruthy();
+    });
+
+    it("should reject empty key", () => {
+      const result = validateClaudeKey("");
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("empty");
+    });
+
+    it("should reject key not starting with sk-ant-", () => {
+      const result = validateClaudeKey("sk-live-" + "a".repeat(40));
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("sk-ant-");
+    });
+
+    it("should reject suspiciously short keys", () => {
+      const result = validateClaudeKey("sk-ant-short");
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("suspicious");
     });
   });
 

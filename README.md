@@ -1,6 +1,6 @@
 # Playwright Oracle Reporter
 
-Playwright Oracle Reporter is an npm package for teams that want better failure analysis than the default Playwright output. It adds rule-based diagnostics, flakiness tracking, telemetry correlation, HTML reporting, and optional OpenAI enrichment for failed runs.
+Playwright Oracle Reporter is an npm package for teams that want better failure analysis than the default Playwright output. It adds rule-based diagnostics, flakiness tracking, telemetry correlation, HTML reporting, and optional OpenAI or Claude enrichment for failed runs.
 
 <img width="2547" height="1163" alt="image" src="https://github.com/user-attachments/assets/6938cc48-cd12-43db-a0a4-052268df623c" />
 
@@ -14,7 +14,7 @@ Playwright Oracle Reporter is an npm package for teams that want better failure 
 - [Environment Variables](#environment-variables)
 - [CLI](#cli)
 - [Report Output](#report-output)
-- [OpenAI Enrichment](#openai-enrichment)
+- [AI Enrichment](#ai-enrichment)
 - [Development](#development)
 - [Troubleshooting](#troubleshooting)
 - [License](#license)
@@ -25,9 +25,9 @@ Playwright Oracle Reporter is an npm package for teams that want better failure 
 - Tracks flaky and repeated failures across runs
 - Captures local telemetry such as CPU, memory, and disk pressure
 - Produces an HTML report and structured JSON data
-- Optionally enriches failures with OpenAI analysis
+- Optionally enriches failures with OpenAI or Claude analysis
 
-The package is local-first by default. OpenAI usage is optional.
+The package is local-first by default. AI provider usage is optional.
 
 ## Install
 
@@ -162,7 +162,7 @@ type ReporterOptions = {
   openReport?: boolean;
   runLabel?: string;
   telemetryInterval?: number;
-  aiMode?: "auto" | "rules" | "openai" | "off";
+  aiMode?: "auto" | "rules" | "openai" | "claude" | "off";
 };
 ```
 
@@ -195,6 +195,7 @@ export default defineConfig({
 Supported environment variables:
 
 - `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
 - `PW_ORACLE_OUTPUT_DIR`
 - `PW_ORACLE_HISTORY_DIR`
 - `PW_ORACLE_OPEN_REPORT`
@@ -205,6 +206,9 @@ Supported environment variables:
 - `PW_ORACLE_OPENAI_MODEL`
 - `PW_ORACLE_OPENAI_MAX_TOKENS`
 - `PW_ORACLE_OPENAI_TIMEOUT_MS`
+- `PW_ORACLE_CLAUDE_MODEL`
+- `PW_ORACLE_CLAUDE_MAX_TOKENS`
+- `PW_ORACLE_CLAUDE_TIMEOUT_MS`
 
 Defaults:
 
@@ -246,9 +250,13 @@ By default the package writes:
 
 The HTML report is intended for local inspection or CI artifact upload. History is stored as run-scoped files to make repeated runs and CI usage safer than a shared append-only file.
 
-## OpenAI Enrichment
+## AI Enrichment
 
-OpenAI integration is optional. If enabled, the reporter can add higher-level analysis on top of the built-in rule engine.
+OpenAI and Claude integrations are optional. If enabled, the reporter can add higher-level analysis on top of the built-in rule engine.
+
+`aiMode: "auto"` prefers OpenAI when `OPENAI_API_KEY` is set, otherwise Claude when `ANTHROPIC_API_KEY` is set. If neither key is available, the reporter stays on local rules-based analysis.
+
+### OpenAI example
 
 In a project `.env` file:
 
@@ -266,7 +274,23 @@ export PW_ORACLE_AI_MODE="openai"
 export PW_ORACLE_OPENAI_MODEL="gpt-4o-mini"
 ```
 
-If no API key is set, the reporter falls back to local rules-based analysis. OpenAI enrichment only runs for failed or flaky runs.
+### Claude example
+
+```bash
+ANTHROPIC_API_KEY=your_api_key
+PW_ORACLE_AI_MODE=claude
+PW_ORACLE_CLAUDE_MODEL=claude-sonnet-4-20250514
+```
+
+Or export the same variables in your shell before running Playwright:
+
+```bash
+export ANTHROPIC_API_KEY="your_api_key"
+export PW_ORACLE_AI_MODE="claude"
+export PW_ORACLE_CLAUDE_MODEL="claude-sonnet-4-20250514"
+```
+
+If no matching API key is set, the reporter falls back to local rules-based analysis. Provider enrichment only runs for failed or flaky runs.
 
 ## Development
 
@@ -300,15 +324,16 @@ npx playwright-oracle-reporter open
 npx playwright-oracle-reporter doctor
 ```
 
-### OpenAI mode is not being used
+### AI mode is not being used
 
 Check that:
 
-- `OPENAI_API_KEY` is set
-- `PW_ORACLE_AI_MODE=openai`
+- `PW_ORACLE_AI_MODE` matches the provider you want: `openai`, `claude`, or `auto`
+- `OPENAI_API_KEY` is set for OpenAI mode
+- `ANTHROPIC_API_KEY` is set for Claude mode
 - your `.env` file is in the project root if you rely on file-based env loading
 - your environment is available to the Playwright process that runs the reporter
-- the run had at least one failed or flaky test, because successful runs do not call OpenAI
+- the run had at least one failed or flaky test, because successful runs do not call the provider APIs
 
 ### CI report directories are overwriting each other
 

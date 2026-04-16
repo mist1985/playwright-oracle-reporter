@@ -6,7 +6,7 @@
  */
 
 import type { IMarkdownReportGenerator, ReportContext } from "./interfaces";
-import type { OpenAIResponse } from "../ai/openai/types";
+import type { AIResponse } from "../ai/types";
 
 /**
  * Generates a markdown summary of the AI analysis,
@@ -20,17 +20,17 @@ export class MarkdownReportGenerator implements IMarkdownReportGenerator {
    * @returns The markdown string
    */
   async generate(context: ReportContext): Promise<string> {
-    const { openaiResponse, runSummary, patterns } = context;
+    const { aiResponse, runSummary, patterns } = context;
 
-    if (!openaiResponse) {
+    if (!aiResponse) {
       return "";
     }
 
-    return this.buildMarkdown(openaiResponse, runSummary.failed, runSummary.flaky, patterns);
+    return this.buildMarkdown(aiResponse, runSummary.failed, runSummary.flaky, patterns);
   }
 
   private buildMarkdown(
-    ai: OpenAIResponse,
+    ai: AIResponse,
     failedCount: number,
     flakyCount: number,
     patterns: ReportContext["patterns"],

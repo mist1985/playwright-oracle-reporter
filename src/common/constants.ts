@@ -36,6 +36,18 @@ export const CONFIG_DEFAULTS = {
   OPENAI_TIMEOUT_MS: 30000,
   /** Default OpenAI retry attempts */
   OPENAI_RETRIES: 3,
+  /** Default max sanitized payload size for OpenAI */
+  OPENAI_MAX_INPUT_CHARS: 15000,
+  /** Default Claude model */
+  CLAUDE_MODEL: "claude-sonnet-4-20250514",
+  /** Default Claude max tokens */
+  CLAUDE_MAX_TOKENS: 4000,
+  /** Default Claude timeout in milliseconds */
+  CLAUDE_TIMEOUT_MS: 30000,
+  /** Default Claude retry attempts */
+  CLAUDE_RETRIES: 3,
+  /** Default max sanitized payload size for Claude */
+  CLAUDE_MAX_INPUT_CHARS: 15000,
   /** HTML report filename */
   REPORT_FILENAME: "index.html",
 } as const;
@@ -49,6 +61,7 @@ export const VALIDATION_CONSTRAINTS = {
     AUTO: "auto",
     RULES: "rules",
     OPENAI: "openai",
+    CLAUDE: "claude",
   },
   /** Minimum recommended telemetry interval in seconds */
   MIN_TELEMETRY_INTERVAL: 1,
@@ -124,6 +137,7 @@ export const PLATFORM_COMMANDS = {
  */
 export const ENV_VARS = {
   OPENAI_API_KEY: "OPENAI_API_KEY",
+  ANTHROPIC_API_KEY: "ANTHROPIC_API_KEY",
   OUTPUT_DIR: "PW_ORACLE_OUTPUT_DIR",
   HISTORY_DIR: "PW_ORACLE_HISTORY_DIR",
   OPEN_REPORT: "PW_ORACLE_OPEN_REPORT",
@@ -135,6 +149,11 @@ export const ENV_VARS = {
   OPENAI_TIMEOUT_MS: "PW_ORACLE_OPENAI_TIMEOUT_MS",
   OPENAI_RETRIES: "PW_ORACLE_OPENAI_RETRIES",
   OPENAI_ENABLED: "PW_ORACLE_OPENAI_ENABLED",
+  CLAUDE_MODEL: "PW_ORACLE_CLAUDE_MODEL",
+  CLAUDE_MAX_TOKENS: "PW_ORACLE_CLAUDE_MAX_TOKENS",
+  CLAUDE_TIMEOUT_MS: "PW_ORACLE_CLAUDE_TIMEOUT_MS",
+  CLAUDE_RETRIES: "PW_ORACLE_CLAUDE_RETRIES",
+  CLAUDE_MAX_INPUT_CHARS: "PW_ORACLE_CLAUDE_MAX_INPUT_CHARS",
   LOG_LEVEL: "PW_ORACLE_LOG_LEVEL",
   SILENT: "PW_ORACLE_SILENT",
   THRESHOLD_LOAD1: "PW_ORACLE_THRESHOLD_LOAD1",
@@ -176,7 +195,7 @@ export function getBooleanEnvVar(key: EnvVarKey): boolean | undefined {
 /**
  * Valid AI modes
  */
-export const AI_MODES = ["auto", "rules", "openai"] as const;
+export const AI_MODES = ["auto", "rules", "openai", "claude"] as const;
 export type AIMode = (typeof AI_MODES)[number];
 
 /**

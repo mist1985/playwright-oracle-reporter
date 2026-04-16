@@ -9,7 +9,7 @@ import { PayloadSanitizer } from "./sanitize";
 import { OpenAIClient } from "./client";
 import { SchemaValidator } from "./schema";
 import { OpenAIResponse, OpenAIConfig } from "./types";
-import { getEnvVar } from "../../common/constants";
+import { CONFIG_DEFAULTS, getEnvVar } from "../../common/constants";
 
 export interface EnrichmentContext {
   run: RunSummary;
@@ -35,11 +35,20 @@ export class OpenAIEnricher {
   constructor(apiKey: string) {
     this.config = {
       apiKey,
-      model: getEnvVar("OPENAI_MODEL") || "gpt-4o",
-      timeoutMs: parseInt(getEnvVar("OPENAI_TIMEOUT_MS") || "15000"),
-      maxTokens: parseInt(getEnvVar("OPENAI_MAX_TOKENS") || "1000"),
-      maxInputChars: parseInt(getEnvVar("OPENAI_MAX_INPUT_CHARS") || "15000"),
-      retries: 1,
+      model: getEnvVar("OPENAI_MODEL") || CONFIG_DEFAULTS.OPENAI_MODEL,
+      timeoutMs: parseInt(
+        getEnvVar("OPENAI_TIMEOUT_MS") || String(CONFIG_DEFAULTS.OPENAI_TIMEOUT_MS),
+        10,
+      ),
+      maxTokens: parseInt(
+        getEnvVar("OPENAI_MAX_TOKENS") || String(CONFIG_DEFAULTS.OPENAI_MAX_TOKENS),
+        10,
+      ),
+      maxInputChars: parseInt(
+        getEnvVar("OPENAI_MAX_INPUT_CHARS") || String(CONFIG_DEFAULTS.OPENAI_MAX_INPUT_CHARS),
+        10,
+      ),
+      retries: parseInt(getEnvVar("OPENAI_RETRIES") || String(CONFIG_DEFAULTS.OPENAI_RETRIES), 10),
     };
   }
 

@@ -29,6 +29,7 @@ import {
   validateAIMode,
   validateTelemetryInterval,
   validateOpenAIKey,
+  validateClaudeKey,
   validateNodeVersion,
 } from "../common/validation";
 import { getLogger } from "../common/logger";
@@ -69,12 +70,14 @@ export interface ConfigOptions {
   historyDir?: string;
   /** Whether to auto-open the report after the run finishes */
   openReport?: boolean;
-  /** AI analysis mode: auto, rules, or openai */
+  /** AI analysis mode: auto, rules, openai, or claude */
   aiMode?: string;
   /** Telemetry collection interval in seconds */
   telemetryInterval?: number;
   /** OpenAI API key for GPT-based analysis */
   openaiApiKey?: string;
+  /** Anthropic API key for Claude-based analysis */
+  claudeApiKey?: string;
 }
 
 /**
@@ -107,6 +110,7 @@ export function validateConfig(options: ConfigOptions = {}): ValidationResult {
       options.telemetryInterval ||
       validateInteger(telemetryIntervalStr, "telemetryInterval", 1, 60);
     const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
+    const claudeApiKey = options.claudeApiKey || process.env.ANTHROPIC_API_KEY;
 
     // Validate Node.js version
     const nodeVersion = process.versions.node;
@@ -169,6 +173,25 @@ export function validateConfig(options: ConfigOptions = {}): ValidationResult {
             `${ENV_VARS.OPENAI_API_KEY} format appears invalid (should start with "sk-").`,
           );
           logger.warn("OpenAI API key format validation failed", {
+            error: keyValidation.error,
+          });
+        }
+      }
+    }
+
+    if (aiMode === "claude") {
+      if (!claudeApiKey) {
+        result.warnings.push(
+          `AI mode is "claude" but ${ENV_VARS.ANTHROPIC_API_KEY} is not set. Falling back to rules-based analysis.`,
+        );
+        logger.warn("Claude mode selected but API key not configured");
+      } else {
+        const keyValidation = validateClaudeKey(claudeApiKey);
+        if (!keyValidation.valid) {
+          result.warnings.push(
+            `${ENV_VARS.ANTHROPIC_API_KEY} format appears invalid (should start with "sk-ant-").`,
+          );
+          logger.warn("Claude API key format validation failed", {
             error: keyValidation.error,
           });
         }

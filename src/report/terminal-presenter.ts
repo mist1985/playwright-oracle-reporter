@@ -9,7 +9,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { ITerminalPresenter, TestSummary, RunSummary } from "./interfaces";
 import type { PatternOutput } from "../types";
-import type { OpenAIResponse } from "../ai/openai/types";
+import type { AIResponse } from "../ai/types";
 import { getAttachmentIcon } from "./html-utils";
 
 /**
@@ -66,7 +66,7 @@ export class TerminalPresenter implements ITerminalPresenter {
     this.safeLog("\n" + "─".repeat(60) + "\n");
   }
 
-  printFlakinessAnalysis(patterns: PatternOutput, openaiResponse: OpenAIResponse | null): void {
+  printFlakinessAnalysis(patterns: PatternOutput, aiResponse: AIResponse | null): void {
     if (!patterns.flakyTests || patterns.flakyTests.length === 0) return;
 
     this.safeLog("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -92,8 +92,8 @@ export class TerminalPresenter implements ITerminalPresenter {
             this.safeLog(`   Evidence: ${rc.evidence.metric}: ${rc.evidence.value}`);
           }
 
-          if (openaiResponse?.algorithmic_findings_review) {
-            const review = openaiResponse.algorithmic_findings_review.find(
+          if (aiResponse?.algorithmic_findings_review) {
+            const review = aiResponse.algorithmic_findings_review.find(
               (r) => r.test_id === test.testId && r.finding_type === rc.type,
             );
 

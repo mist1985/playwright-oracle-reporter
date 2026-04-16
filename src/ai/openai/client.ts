@@ -4,88 +4,8 @@
  */
 
 import { OpenAIConfig } from "./types";
-
-/**
- * Rate limiter to prevent API abuse
- */
-class RateLimiter {
-  private tokens: number;
-  private lastRefill: number;
-  private readonly maxTokens: number;
-  private readonly refillRate: number; // tokens per second
-
-  constructor(maxTokens: number = 50, refillRate: number = 10) {
-    this.maxTokens = maxTokens;
-    this.refillRate = refillRate;
-    this.tokens = maxTokens;
-    this.lastRefill = Date.now();
-  }
-
-  async acquire(): Promise<void> {
-    this.refill();
-
-    while (this.tokens < 1) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      this.refill();
-    }
-
-    this.tokens--;
-  }
-
-  private refill(): void {
-    const now = Date.now();
-    const elapsed = (now - this.lastRefill) / 1000;
-    const tokensToAdd = elapsed * this.refillRate;
-
-    this.tokens = Math.min(this.maxTokens, this.tokens + tokensToAdd);
-    this.lastRefill = now;
-  }
-}
-
-/**
- * Circuit breaker to prevent cascading failures
- */
-class CircuitBreaker {
-  private failures: number = 0;
-  private lastFailureTime: number = 0;
-  private state: "closed" | "open" | "half-open" = "closed";
-  private readonly threshold: number = 5;
-  private readonly resetTimeout: number = 60000; // 1 minute
-
-  async execute<T>(fn: () => Promise<T>): Promise<T | null> {
-    if (this.state === "open") {
-      const now = Date.now();
-      if (now - this.lastFailureTime > this.resetTimeout) {
-        this.state = "half-open";
-        this.failures = 0;
-      } else {
-        throw new Error("Circuit breaker is OPEN - too many failures");
-      }
-    }
-
-    try {
-      const result = await fn();
-      if (this.state === "half-open") {
-        this.state = "closed";
-        this.failures = 0;
-      }
-      return result;
-    } catch (error) {
-      this.failures++;
-      this.lastFailureTime = Date.now();
-
-      if (this.failures >= this.threshold) {
-        this.state = "open";
-      }
-
-      throw error;
-    }
-  }
-
-  getState(): string {
-    return this.state;
-  }
-}
+import { CircuitBreaker, RateLimiter } from "../common/client-guards";
+import { getAnalysisSystemPrompt } from "../prompts";
 
 export class OpenAIClient {
   private rateLimiter: RateLimiter;
@@ -139,42 +59,10 @@ export class OpenAIClient {
 
     const url = "https://api.openai.com/v1/chat/completions";
 
-    // Strict JSON schema prompt
-    const systemPrompt = `
-You are a Senior QA Engineer. Analyze these Playwright test failures.
-Do not invent facts. Use only evidence in payload.
-Every hypothesis must cite evidence references (testId, errorSnippet, telemetryWindow).
-
-IMPORTANT: The payload includes "flakiness_analysis" - these are algorithmic findings from 
-deterministic pattern detection (race conditions, timing issues, etc.). Your task:
-1. Review "algorithmicFindings" for each flaky test.
-2. CONFIRM or REFUTE each finding based on actual test data evidence.
-3. ENHANCE with context (why it happens) and additional causes the algorithm missed.
-4. If a finding is refuted, explain why and provide a better hypothesis.
-
-Return ONLY valid JSON matching this schema:
-{
-  "pm_summary": "string max 800 chars",
-  "triage_verdict": "infra|app|test|unknown",
-  "top_findings": [{"title": "string", "confidence": "high|medium|low", "evidence": ["string"]}],
-  "root_cause_hypotheses": [{"hypothesis": "string", "confidence": "high|medium|low", "evidence": ["string"], "why_not_others": "string", "next_experiments": ["string"]}],
-  "recommended_fixes": [{"area": "selectors|waits|data|env|network|infra|unknown", "steps": ["string"], "expected_impact": "string", "risk": "low|medium|high"}],
-  "os_diff_notes": "string",
-  "telemetry_notes": "string",
-  "algorithmic_findings_review": [{
-    "test_id": "string",
-    "finding_type": "string",
-    "ai_verdict": "confirmed|refuted|partially-confirmed|uncertain",
-    "ai_confidence": "high|medium|low",
-    "ai_reasoning": "string explaining why you agree/disagree",
-    "ai_enhancement": "optional string with additional context or fixes"
-  }]
-}`;
-
     const body = {
       model: this.config.model,
       messages: [
-        { role: "system", content: systemPrompt },
+        { role: "system", content: getAnalysisSystemPrompt("json") },
         { role: "user", content: JSON.stringify(payload) },
       ],
       response_format: { type: "json_object" },

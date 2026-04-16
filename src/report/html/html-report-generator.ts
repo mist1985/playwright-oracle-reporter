@@ -8,7 +8,7 @@
 import type { IHtmlReportGenerator, ReportContext, TestSummary } from "../interfaces";
 import type { NormalizedSystemMetrics } from "../../telemetry/collectors/common";
 import type { Finding, RulesOutput, PatternOutput, TelemetrySummaryOutput } from "../../types";
-import type { OpenAIResponse } from "../../ai/openai/types";
+import type { AIProvider, AIResponse } from "../../ai/types";
 import { escapeHtml, getAttachmentIcon, getAttachmentClass } from "../html-utils";
 import { getHtmlStyles } from "./styles";
 import { getClientScript } from "./client-script";
@@ -26,7 +26,7 @@ export class HtmlReportGenerator implements IHtmlReportGenerator {
       patterns,
       telemetrySummary,
       correlations,
-      openaiResponse,
+      aiResponse,
       config,
     } = context;
 
@@ -44,7 +44,7 @@ export class HtmlReportGenerator implements IHtmlReportGenerator {
       patterns,
       telemetrySummary,
       correlations: correlations as Finding[],
-      openaiResponse,
+      aiResponse,
       config,
       grade,
       gradeColor,
@@ -88,7 +88,7 @@ export class HtmlReportGenerator implements IHtmlReportGenerator {
     patterns: PatternOutput | null;
     telemetrySummary: TelemetrySummaryOutput | null;
     correlations: Finding[];
-    openaiResponse: OpenAIResponse | null;
+    aiResponse: AIResponse | null;
     config: ReportContext["config"];
     grade: string;
     gradeColor: string;
@@ -102,7 +102,7 @@ export class HtmlReportGenerator implements IHtmlReportGenerator {
       patterns,
       telemetrySummary,
       correlations,
-      openaiResponse,
+      aiResponse,
       config,
       grade,
       gradeColor,
@@ -126,7 +126,7 @@ ${getHtmlStyles(gradeColor)}
       ${this.renderHeader(runSummary)}
       ${this.renderOverviewView(tests, runSummary)}
       ${this.renderTestsView(tests, runSummary)}
-      ${this.renderInsightsView(openaiResponse, patterns, analysis, runSummary, config)}
+      ${this.renderInsightsView(aiResponse, patterns, analysis, runSummary, config)}
       ${this.renderTelemetryView(metrics, telemetrySummary, correlations, config)}
       ${this.renderFooter()}
     </div>
@@ -347,19 +347,19 @@ ${getClientScript()}
   }
 
   private renderInsightsView(
-    openaiResponse: OpenAIResponse | null,
+    aiResponse: AIResponse | null,
     patterns: PatternOutput | null,
     analysis: RulesOutput | null,
     runSummary: ReportContext["runSummary"],
     config: ReportContext["config"],
   ): string {
-    const openaiSection = openaiResponse
-      ? this.renderOpenAISection(openaiResponse)
+    const aiSection = aiResponse
+      ? this.renderAISection(aiResponse, config.aiProvider)
       : this.renderNoAISection(runSummary, config);
 
     return `
       <div id="view-insights" class="view-section">
-        ${openaiSection}
+        ${aiSection}
         ${this.renderPatternsSection(patterns)}
         ${analysis ? this.renderFailedTestsSection(analysis) : ""}
       </div>`;
@@ -372,18 +372,22 @@ ${getClientScript()}
     const hasFailures = runSummary.failed > 0 || runSummary.flaky > 0;
 
     let message =
-      "AI insights are generated only when OpenAI is configured and the run contains failed or flaky tests.";
+      "AI insights are generated only when an AI provider is configured and the run contains failed or flaky tests.";
 
     if (config.aiMode === "off" || config.aiMode === "rules") {
       message = `AI insights are disabled because aiMode is set to "${config.aiMode}".`;
-    } else if (!config.openaiConfigured) {
-      message = "Set OPENAI_API_KEY to enable AI-powered insights for failed or flaky runs.";
+    } else if (config.aiMode === "openai" && !config.openaiConfigured) {
+      message = "Set OPENAI_API_KEY to enable OpenAI-powered insights for failed or flaky runs.";
+    } else if (config.aiMode === "claude" && !config.claudeConfigured) {
+      message = "Set ANTHROPIC_API_KEY to enable Claude-powered insights for failed or flaky runs.";
+    } else if (config.aiMode === "auto" && !config.openaiConfigured && !config.claudeConfigured) {
+      message =
+        "Set OPENAI_API_KEY or ANTHROPIC_API_KEY to enable AI-powered insights for failed or flaky runs.";
     } else if (!hasFailures) {
-      message =
-        "OpenAI analysis was skipped because there were no failed or flaky tests in this run.";
-    } else if (config.openaiAttempted) {
-      message =
-        "OpenAI analysis was attempted, but the request failed or timed out. The report still includes rules-based findings.";
+      message = "AI analysis was skipped because there were no failed or flaky tests in this run.";
+    } else if (config.aiAttempted) {
+      const providerLabel = config.aiProvider ? this.getProviderLabel(config.aiProvider) : "AI";
+      message = `${providerLabel} analysis was attempted, but the request failed or timed out. The report still includes rules-based findings.`;
     }
 
     return `<div class="card" style="text-align: center; padding: 3rem">
@@ -393,10 +397,12 @@ ${getClientScript()}
          </div>`;
   }
 
-  private renderOpenAISection(data: OpenAIResponse): string {
+  private renderAISection(data: AIResponse, provider: AIProvider | null): string {
+    const providerLabel = provider ? this.getProviderLabel(provider) : "AI";
+
     return `
       <div class="section">
-        <h2 style="display: flex; align-items: center; gap: 0.5rem;">🤖 AI Troubleshooter</h2>
+        <h2 style="display: flex; align-items: center; gap: 0.5rem;">🤖 ${escapeHtml(providerLabel)} Troubleshooter</h2>
         <div class="ai-summary" style="border-left-color: var(--brand-primary); background: var(--bg-secondary);">
           <h3>🔮 Root Cause Investigation</h3>
           <p>${escapeHtml(data.pm_summary)}</p>
@@ -685,5 +691,9 @@ ${getClientScript()}
        <div class="footer-brand"><strong>Playwright Oracle Reporter</strong> v1.0.0</div>
        <div class="footer-copyright">© 2026 Mihajlo Stojanovski. All rights reserved.</div>
      </footer>`;
+  }
+
+  private getProviderLabel(provider: AIProvider): string {
+    return provider === "openai" ? "OpenAI" : "Claude";
   }
 }
