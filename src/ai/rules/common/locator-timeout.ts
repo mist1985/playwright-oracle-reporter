@@ -25,7 +25,7 @@ export class LocatorTimeoutRule implements Rule {
   }
 
   build(ctx: RuleContext): Finding[] {
-    const msg = ctx.test.error.message || "";
+    const msg = ctx.test.error.message ?? "";
     let details = "Element not found or not visible within timeout.";
 
     // Extract selector if possible

@@ -139,10 +139,10 @@ export class LinuxCollector {
             }
           }
         }
-      } catch (e) {
+      } catch {
         // Disk check failed
       }
-    } catch (e) {
+    } catch {
       // Best effort
     }
 

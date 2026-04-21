@@ -26,7 +26,7 @@ export class ContextDestroyedRule implements Rule {
   }
 
   build(ctx: RuleContext): Finding[] {
-    const msg = ctx.test.error.message || "";
+    const msg = ctx.test.error.message ?? "";
     const isFrameDetached = msg.includes("frame");
     const isCrash = msg.includes("crashed");
 

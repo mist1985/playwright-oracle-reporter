@@ -32,10 +32,10 @@ export const CAPS = {
  * Can be overridden via environment variables.
  */
 export const THRESHOLDS = {
-  LOAD1: parseFloat(getEnvVar("THRESHOLD_LOAD1") || "4.0"),
-  PRESSURE_PCT: parseFloat(getEnvVar("THRESHOLD_PRESSURE") || "10"),
-  IOWAIT_PCT: parseFloat(getEnvVar("THRESHOLD_IOWAIT") || "20"),
-  STEAL_PCT: parseFloat(getEnvVar("THRESHOLD_STEAL") || "10"),
+  LOAD1: parseFloat(getEnvVar("THRESHOLD_LOAD1") ?? "4.0"),
+  PRESSURE_PCT: parseFloat(getEnvVar("THRESHOLD_PRESSURE") ?? "10"),
+  IOWAIT_PCT: parseFloat(getEnvVar("THRESHOLD_IOWAIT") ?? "20"),
+  STEAL_PCT: parseFloat(getEnvVar("THRESHOLD_STEAL") ?? "10"),
 };
 
 /**

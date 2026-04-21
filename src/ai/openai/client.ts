@@ -43,9 +43,9 @@ export class OpenAIClient {
       .execute(async () => {
         return this._executeRequest(payload);
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         this.errorCount++;
-        if (err.message.includes("Circuit breaker")) {
+        if (err instanceof Error && err.message.includes("Circuit breaker")) {
           console.warn(
             "⚠️  OpenAI circuit breaker triggered - falling back to rules-based analysis",
           );
@@ -96,7 +96,7 @@ export class OpenAIClient {
             attempts++;
             const backoff = Math.min(1000 * Math.pow(2, attempts), 10000);
             console.warn(
-              `⚠️  OpenAI rate limit hit, retrying in ${backoff}ms (attempt ${attempts}/${this.config.retries})`,
+              `⚠️  OpenAI rate limit hit, retrying in ${String(backoff)}ms (attempt ${String(attempts)}/${String(this.config.retries)})`,
             );
             await new Promise((r) => setTimeout(r, backoff));
             continue;
@@ -106,7 +106,9 @@ export class OpenAIClient {
             // Server error - retry with backoff
             attempts++;
             const backoff = Math.min(1000 * Math.pow(2, attempts), 10000);
-            console.warn(`⚠️  OpenAI server error (${res.status}), retrying in ${backoff}ms`);
+            console.warn(
+              `⚠️  OpenAI server error (${String(res.status)}), retrying in ${String(backoff)}ms`,
+            );
             await new Promise((r) => setTimeout(r, backoff));
             continue;
           }
@@ -122,7 +124,7 @@ export class OpenAIClient {
           }
 
           // Other permanent errors
-          console.error(`❌ OpenAI API error ${res.status}:`, errorBody);
+          console.error(`❌ OpenAI API error ${String(res.status)}:`, errorBody);
           return null;
         }
 
@@ -137,15 +139,15 @@ export class OpenAIClient {
         const name = e instanceof Error ? e.name : "";
 
         if (name === "AbortError") {
-          console.warn(`⚠️  OpenAI request timeout after ${this.config.timeoutMs}ms`);
-        } else if (message?.includes("fetch")) {
+          console.warn(`⚠️  OpenAI request timeout after ${String(this.config.timeoutMs)}ms`);
+        } else if (message.includes("fetch")) {
           console.warn(`⚠️  Network error calling OpenAI: ${message}`);
         } else {
           console.warn(`⚠️  OpenAI request failed: ${message}`);
         }
 
         if (attempts > this.config.retries) {
-          console.error(`❌ OpenAI request failed after ${this.config.retries} retries`);
+          console.error(`❌ OpenAI request failed after ${String(this.config.retries)} retries`);
           return null;
         }
 

@@ -30,7 +30,7 @@ export class NetworkErrorRule implements Rule {
   }
 
   build(ctx: RuleContext): Finding[] {
-    const msg = ctx.test.error.message || "";
+    const msg = ctx.test.error.message ?? "";
 
     let title = "Network Error";
     let summary = "A network-level error occurred.";

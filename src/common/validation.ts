@@ -39,11 +39,11 @@ export function validateInteger(
   }
 
   if (min !== undefined && num < min) {
-    throw new ValidationError(`${fieldName} must be at least ${min}`, fieldName, value);
+    throw new ValidationError(`${fieldName} must be at least ${String(min)}`, fieldName, value);
   }
 
   if (max !== undefined && num > max) {
-    throw new ValidationError(`${fieldName} must be at most ${max}`, fieldName, value);
+    throw new ValidationError(`${fieldName} must be at most ${String(max)}`, fieldName, value);
   }
 
   return num;
@@ -101,7 +101,7 @@ export function validateNonEmptyString(
 
   if (maxLength !== undefined && trimmed.length > maxLength) {
     throw new ValidationError(
-      `${fieldName} must be at most ${maxLength} characters`,
+      `${fieldName} must be at most ${String(maxLength)} characters`,
       fieldName,
       value,
     );
@@ -339,7 +339,7 @@ export function validatePort(value: number, fieldName: string): number {
 export function validateURL(value: string, fieldName: string): URL {
   try {
     return new URL(value);
-  } catch (error) {
+  } catch {
     throw new ValidationError(`${fieldName} is not a valid URL`, fieldName, value);
   }
 }

@@ -33,11 +33,11 @@ export class MarkdownReportGenerator implements IMarkdownReportGenerator {
     ai: AIResponse,
     failedCount: number,
     flakyCount: number,
-    patterns: ReportContext["patterns"],
+    _patterns: ReportContext["patterns"],
   ): string {
     let md = `# 🧠 AI Root Cause Analysis\n\n`;
     md += `**Generated**: ${new Date().toISOString()}\n`;
-    md += `**Status**: ${failedCount} Failed, ${flakyCount} Flaky\n\n`;
+    md += `**Status**: ${String(failedCount)} Failed, ${String(flakyCount)} Flaky\n\n`;
 
     md += `## 📋 Executive Summary\n\n`;
     md += `${ai.pm_summary}\n\n`;
@@ -45,7 +45,7 @@ export class MarkdownReportGenerator implements IMarkdownReportGenerator {
     if (ai.root_cause_hypotheses.length > 0) {
       md += `## 🔍 Root Cause Hypotheses\n\n`;
       ai.root_cause_hypotheses.forEach((h, i) => {
-        md += `### ${i + 1}. ${h.hypothesis}\n`;
+        md += `### ${String(i + 1)}. ${h.hypothesis}\n`;
         md += `- **Confidence**: ${h.confidence.toUpperCase()}\n`;
         md += `- **Evidence**: ${h.evidence.join(", ")}\n`;
         md += `- **Next Experiments**:\n${h.next_experiments.map((e) => `  - ${e}`).join("\n")}\n\n`;

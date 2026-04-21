@@ -23,20 +23,20 @@ export class ClaudeEnricher {
   constructor(apiKey: string) {
     this.config = {
       apiKey,
-      model: getEnvVar("CLAUDE_MODEL") || CONFIG_DEFAULTS.CLAUDE_MODEL,
+      model: getEnvVar("CLAUDE_MODEL") ?? CONFIG_DEFAULTS.CLAUDE_MODEL,
       timeoutMs: parseInt(
-        getEnvVar("CLAUDE_TIMEOUT_MS") || String(CONFIG_DEFAULTS.CLAUDE_TIMEOUT_MS),
+        getEnvVar("CLAUDE_TIMEOUT_MS") ?? String(CONFIG_DEFAULTS.CLAUDE_TIMEOUT_MS),
         10,
       ),
       maxTokens: parseInt(
-        getEnvVar("CLAUDE_MAX_TOKENS") || String(CONFIG_DEFAULTS.CLAUDE_MAX_TOKENS),
+        getEnvVar("CLAUDE_MAX_TOKENS") ?? String(CONFIG_DEFAULTS.CLAUDE_MAX_TOKENS),
         10,
       ),
       maxInputChars: parseInt(
-        getEnvVar("CLAUDE_MAX_INPUT_CHARS") || String(CONFIG_DEFAULTS.CLAUDE_MAX_INPUT_CHARS),
+        getEnvVar("CLAUDE_MAX_INPUT_CHARS") ?? String(CONFIG_DEFAULTS.CLAUDE_MAX_INPUT_CHARS),
         10,
       ),
-      retries: parseInt(getEnvVar("CLAUDE_RETRIES") || String(CONFIG_DEFAULTS.CLAUDE_RETRIES), 10),
+      retries: parseInt(getEnvVar("CLAUDE_RETRIES") ?? String(CONFIG_DEFAULTS.CLAUDE_RETRIES), 10),
       anthropicVersion: "2023-06-01",
     };
   }
@@ -47,7 +47,7 @@ export class ClaudeEnricher {
       const payloadStr = JSON.stringify(payload);
 
       if (payloadStr.length > this.config.maxInputChars) {
-        console.warn(`PW-AI: Payload too large (${payloadStr.length} chars). Skipping AI.`);
+        console.warn(`PW-AI: Payload too large (${String(payloadStr.length)} chars). Skipping AI.`);
         return null;
       }
 

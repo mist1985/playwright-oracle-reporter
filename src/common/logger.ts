@@ -3,7 +3,7 @@
  * Copyright (c) 2026 Mihajlo Stojanovski
  */
 
-import { formatError, isReporterError } from "./errors";
+import { formatError } from "./errors";
 import { getEnvVar } from "./constants";
 
 /**
@@ -41,7 +41,7 @@ export interface LoggerConfig {
  * Structured logger with proper error handling
  */
 export class Logger {
-  private static instance: Logger;
+  private static instance: Logger | undefined;
   private config: LoggerConfig;
 
   private constructor(config: Partial<LoggerConfig> = {}) {
@@ -57,9 +57,7 @@ export class Logger {
    * Get singleton logger instance
    */
   static getInstance(config?: Partial<LoggerConfig>): Logger {
-    if (!Logger.instance) {
-      Logger.instance = new Logger(config);
-    }
+    Logger.instance ??= new Logger(config);
     return Logger.instance;
   }
 
@@ -67,7 +65,7 @@ export class Logger {
    * Parse log level from environment variable
    */
   private getLogLevelFromEnv(): LogLevel {
-    const level = (getEnvVar("LOG_LEVEL") || "INFO").toUpperCase();
+    const level = (getEnvVar("LOG_LEVEL") ?? "INFO").toUpperCase();
     switch (level) {
       case "DEBUG":
         return LogLevel.DEBUG;

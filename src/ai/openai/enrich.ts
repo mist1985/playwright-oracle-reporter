@@ -35,20 +35,20 @@ export class OpenAIEnricher {
   constructor(apiKey: string) {
     this.config = {
       apiKey,
-      model: getEnvVar("OPENAI_MODEL") || CONFIG_DEFAULTS.OPENAI_MODEL,
+      model: getEnvVar("OPENAI_MODEL") ?? CONFIG_DEFAULTS.OPENAI_MODEL,
       timeoutMs: parseInt(
-        getEnvVar("OPENAI_TIMEOUT_MS") || String(CONFIG_DEFAULTS.OPENAI_TIMEOUT_MS),
+        getEnvVar("OPENAI_TIMEOUT_MS") ?? String(CONFIG_DEFAULTS.OPENAI_TIMEOUT_MS),
         10,
       ),
       maxTokens: parseInt(
-        getEnvVar("OPENAI_MAX_TOKENS") || String(CONFIG_DEFAULTS.OPENAI_MAX_TOKENS),
+        getEnvVar("OPENAI_MAX_TOKENS") ?? String(CONFIG_DEFAULTS.OPENAI_MAX_TOKENS),
         10,
       ),
       maxInputChars: parseInt(
-        getEnvVar("OPENAI_MAX_INPUT_CHARS") || String(CONFIG_DEFAULTS.OPENAI_MAX_INPUT_CHARS),
+        getEnvVar("OPENAI_MAX_INPUT_CHARS") ?? String(CONFIG_DEFAULTS.OPENAI_MAX_INPUT_CHARS),
         10,
       ),
-      retries: parseInt(getEnvVar("OPENAI_RETRIES") || String(CONFIG_DEFAULTS.OPENAI_RETRIES), 10),
+      retries: parseInt(getEnvVar("OPENAI_RETRIES") ?? String(CONFIG_DEFAULTS.OPENAI_RETRIES), 10),
     };
   }
 
@@ -68,7 +68,7 @@ export class OpenAIEnricher {
       const payloadStr = JSON.stringify(payload);
       if (payloadStr.length > this.config.maxInputChars) {
         // Truncate logic could go here, but for now we fallback
-        console.warn(`PW-AI: Payload too large (${payloadStr.length} chars). Skipping AI.`);
+        console.warn(`PW-AI: Payload too large (${String(payloadStr.length)} chars). Skipping AI.`);
         return null;
       }
 

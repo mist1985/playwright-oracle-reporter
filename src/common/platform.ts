@@ -4,6 +4,7 @@
  */
 
 import { exec, ExecOptions } from "child_process";
+import * as os from "os";
 import { promisify } from "util";
 import {
   getBooleanEnvVar,
@@ -128,7 +129,7 @@ export async function executeCommand(
     // Check if it's a timeout
     if (execError.killed && execError.signal === "SIGTERM") {
       throw new PlatformError(
-        `Command timed out after ${timeout}ms: ${command}`,
+        `Command timed out after ${String(timeout)}ms: ${command}`,
         process.platform,
         "command execution",
       );
@@ -138,7 +139,7 @@ export async function executeCommand(
     return {
       stdout: execError.stdout ? String(execError.stdout).trim() : "",
       stderr: execError.stderr ? String(execError.stderr).trim() : (execError.message ?? ""),
-      exitCode: execError.code || 1,
+      exitCode: execError.code ?? 1,
     };
   }
 }
@@ -160,7 +161,7 @@ export function getOpenCommand(): string {
       return PLATFORM_COMMANDS.WINDOWS_OPEN;
     default:
       throw new PlatformError(
-        `No open command available for platform: ${platform}`,
+        `No open command available for platform: ${String(platform)}`,
         platform,
         "file opening",
       );
@@ -196,7 +197,7 @@ export async function openFile(filePath: string): Promise<void> {
 
   if (result.exitCode !== 0) {
     throw new PlatformError(
-      `Failed to open file: ${result.stderr || "Unknown error"}`,
+      `Failed to open file: ${result.stderr !== "" ? result.stderr : "Unknown error"}`,
       platform,
       "file opening",
     );
@@ -275,8 +276,6 @@ export interface PlatformInfo {
  * @returns Platform diagnostics
  */
 export function getPlatformInfo(): PlatformInfo {
-  const os = require("os");
-
   return {
     platform: getPlatform(),
     arch: process.arch,
@@ -293,14 +292,14 @@ export function getPlatformInfo(): PlatformInfo {
  */
 export function isCI(): boolean {
   return !!(
-    process.env.CI ||
-    process.env.CONTINUOUS_INTEGRATION ||
-    process.env.BUILD_NUMBER ||
-    process.env.GITHUB_ACTIONS ||
-    process.env.GITLAB_CI ||
-    process.env.CIRCLECI ||
-    process.env.TRAVIS ||
-    process.env.JENKINS_URL ||
+    process.env.CI ??
+    process.env.CONTINUOUS_INTEGRATION ??
+    process.env.BUILD_NUMBER ??
+    process.env.GITHUB_ACTIONS ??
+    process.env.GITLAB_CI ??
+    process.env.CIRCLECI ??
+    process.env.TRAVIS ??
+    process.env.JENKINS_URL ??
     process.env.TEAMCITY_VERSION
   );
 }

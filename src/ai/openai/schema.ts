@@ -23,7 +23,7 @@ export class SchemaValidator {
       // top_findings
       if (!Array.isArray(obj.top_findings)) return null;
       obj.top_findings = (obj.top_findings as Record<string, unknown>[]).map((f) => ({
-        title: String(f.title || "Untitled"),
+        title: String(f.title ?? "Untitled"),
         confidence: this.validateConfidence(f.confidence),
         evidence: Array.isArray(f.evidence) ? f.evidence.map(String) : [],
       }));
@@ -32,10 +32,10 @@ export class SchemaValidator {
       if (!Array.isArray(obj.root_cause_hypotheses)) return null;
       obj.root_cause_hypotheses = (obj.root_cause_hypotheses as Record<string, unknown>[]).map(
         (h) => ({
-          hypothesis: String(h.hypothesis || "Unknown"),
+          hypothesis: String(h.hypothesis ?? "Unknown"),
           confidence: this.validateConfidence(h.confidence),
           evidence: Array.isArray(h.evidence) ? h.evidence.map(String) : [],
-          why_not_others: String(h.why_not_others || ""),
+          why_not_others: String(h.why_not_others ?? ""),
           next_experiments: Array.isArray(h.next_experiments) ? h.next_experiments.map(String) : [],
         }),
       );
@@ -49,13 +49,13 @@ export class SchemaValidator {
           ? f.area
           : "unknown",
         steps: Array.isArray(f.steps) ? f.steps.map(String) : [],
-        expected_impact: String(f.expected_impact || ""),
+        expected_impact: String(f.expected_impact ?? ""),
         risk: this.validateConfidence(f.risk),
       }));
 
       // notes
-      obj.os_diff_notes = String(obj.os_diff_notes || "");
-      obj.telemetry_notes = String(obj.telemetry_notes || "");
+      obj.os_diff_notes = String(obj.os_diff_notes ?? "");
+      obj.telemetry_notes = String(obj.telemetry_notes ?? "");
 
       // algorithmic_findings_review
       if (obj.algorithmic_findings_review) {
@@ -65,15 +65,15 @@ export class SchemaValidator {
           obj.algorithmic_findings_review = (
             obj.algorithmic_findings_review as Record<string, unknown>[]
           ).map((r) => ({
-            test_id: String(r.test_id || ""),
-            finding_type: String(r.finding_type || ""),
+            test_id: String(r.test_id ?? ""),
+            finding_type: String(r.finding_type ?? ""),
             ai_verdict: ["confirmed", "refuted", "partially-confirmed", "uncertain"].includes(
               r.ai_verdict as string,
             )
               ? r.ai_verdict
               : "uncertain",
             ai_confidence: this.validateConfidence(r.ai_confidence),
-            ai_reasoning: String(r.ai_reasoning || ""),
+            ai_reasoning: String(r.ai_reasoning ?? ""),
             ai_enhancement: r.ai_enhancement ? String(r.ai_enhancement) : undefined,
           }));
         }

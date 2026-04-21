@@ -24,7 +24,7 @@ export class NavigationTimeoutRule implements Rule {
   }
 
   build(ctx: RuleContext): Finding[] {
-    const msg = ctx.test.error.message || "";
+    const msg = ctx.test.error.message ?? "";
     const isNetworkIdle = msg.includes("networkidle");
 
     return [
@@ -37,7 +37,7 @@ export class NavigationTimeoutRule implements Rule {
         summary: isNetworkIdle
           ? "Page never reached networkidle state. Likely ongoing background requests."
           : "Page navigation did not complete within timeout.",
-        details: `Navigation to target URL exceeded timeout. Duration: ${ctx.test.durationMs}ms.`,
+        details: `Navigation to target URL exceeded timeout. Duration: ${String(ctx.test.durationMs)}ms.`,
         evidenceRefs: ctx.normalizedError.snippetLines.slice(0, CAPS.MAX_EVIDENCE_REFS),
         recommendedActions: isNetworkIdle
           ? [

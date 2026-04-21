@@ -132,8 +132,8 @@ export class PayloadSanitizer {
     const avgLoad = metrics.reduce((a, b) => a + b.cpu.load1, 0) / metrics.length;
 
     // Checks for Linux constraints
-    const hasPressure = metrics.some((m) => (m.memory.pressurePct || 0) > 0);
-    const hasSteal = metrics.some((m) => (m.cpu.stealPct || 0) > 5);
+    const hasPressure = metrics.some((m) => (m.memory.pressurePct ?? 0) > 0);
+    const hasSteal = metrics.some((m) => (m.cpu.stealPct ?? 0) > 5);
 
     return {
       samples: metrics.length,

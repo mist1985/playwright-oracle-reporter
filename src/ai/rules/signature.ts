@@ -15,7 +15,7 @@ export class SignatureGenerator {
    * Normalize error message and stack to remove volatile tokens.
    */
   static normalize(message: string | null, stack: string | null): string {
-    let combined = (message || "") + "\n" + (stack || "");
+    let combined = (message ?? "") + "\n" + (stack ?? "");
 
     // Cap total length
     if (combined.length > CAPS.MAX_STACK_LENGTH) {
@@ -67,7 +67,7 @@ export class SignatureGenerator {
    * Extract snippet lines from error for evidence.
    */
   static extractSnippetLines(message: string | null, stack: string | null): string[] {
-    const combined = (message || "") + "\n" + (stack || "");
+    const combined = (message ?? "") + "\n" + (stack ?? "");
     const lines = combined.split("\n").filter((l) => l.trim().length > 0);
     return lines.slice(0, CAPS.MAX_SNIPPET_LINES);
   }

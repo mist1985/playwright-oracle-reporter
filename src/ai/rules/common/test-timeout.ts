@@ -33,11 +33,11 @@ export class TestTimeoutRule implements Rule {
         kind: this.kind,
         title: "Test Timeout Exceeded",
         confidence: 0.95,
-        summary: `Test exceeded the configured timeout of ${ctx.test.durationMs}ms.`,
+        summary: `Test exceeded the configured timeout of ${String(ctx.test.durationMs)}ms.`,
         details:
           "The test did not complete within the allowed time. This may indicate a hang or very slow operations.",
         evidenceRefs: [
-          `Duration: ${ctx.test.durationMs}ms`,
+          `Duration: ${String(ctx.test.durationMs)}ms`,
           ...ctx.normalizedError.snippetLines.slice(0, CAPS.MAX_EVIDENCE_REFS - 1),
         ],
         recommendedActions: [

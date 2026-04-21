@@ -58,7 +58,7 @@ export class HistoryStore {
   async saveRun(entry: HistoryRecord): Promise<void> {
     this.ensureDir();
 
-    const fileName = `${entry.timestamp}-${randomUUID()}.json`;
+    const fileName = `${String(entry.timestamp)}-${randomUUID()}.json`;
     const finalPath = path.join(this.runsDir, fileName);
     const tempPath = `${finalPath}.tmp`;
 

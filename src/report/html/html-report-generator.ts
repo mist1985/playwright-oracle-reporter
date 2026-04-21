@@ -9,7 +9,7 @@ import type { IHtmlReportGenerator, ReportContext, TestSummary } from "../interf
 import type { NormalizedSystemMetrics } from "../../telemetry/collectors/common";
 import type { Finding, RulesOutput, PatternOutput, TelemetrySummaryOutput } from "../../types";
 import type { AIProvider, AIResponse } from "../../ai/types";
-import { escapeHtml, getAttachmentIcon, getAttachmentClass } from "../html-utils";
+import { escapeHtml } from "../html-utils";
 import { getHtmlStyles } from "./styles";
 import { getClientScript } from "./client-script";
 
@@ -166,7 +166,7 @@ ${getClientScript()}
     <div class="health-card">
       <div class="health-label">Suite Health</div>
       <div class="health-score">${grade}</div>
-      <div class="health-score-value">${Math.round(healthScore)}/100</div>
+      <div class="health-score-value">${String(Math.round(healthScore))}/100</div>
     </div>
   </aside>`;
   }
@@ -179,7 +179,7 @@ ${getClientScript()}
           <div class="header-meta">
             <span class="header-meta-item">📅 ${new Date(runSummary.startTime).toLocaleString()}</span>
             <span class="header-meta-item">⏱️ ${(runSummary.duration / 1000).toFixed(2)}s</span>
-            <span class="header-meta-item">🧪 ${runSummary.totalTests} tests</span>
+            <span class="header-meta-item">🧪 ${String(runSummary.totalTests)} tests</span>
           </div>
         </div>
         <div class="actions">
@@ -201,23 +201,23 @@ ${getClientScript()}
         <div class="grid">
           <div class="card stat-card" style="--stat-color: var(--color-danger)">
             <div class="stat-label">❌ Failed</div>
-            <div class="stat-value" style="color: var(--color-danger)">${runSummary.failed}</div>
+            <div class="stat-value" style="color: var(--color-danger)">${String(runSummary.failed)}</div>
             ${runSummary.totalTests > 0 ? `<div class="stat-change">${((runSummary.failed / runSummary.totalTests) * 100).toFixed(1)}% of total</div>` : ""}
           </div>
           <div class="card stat-card" style="--stat-color: var(--color-success)">
             <div class="stat-label">✅ Passed</div>
-            <div class="stat-value" style="color: var(--color-success)">${runSummary.passed}</div>
+            <div class="stat-value" style="color: var(--color-success)">${String(runSummary.passed)}</div>
             ${runSummary.totalTests > 0 ? `<div class="stat-change positive">${((runSummary.passed / runSummary.totalTests) * 100).toFixed(1)}% of total</div>` : ""}
           </div>
           <div class="card stat-card" style="--stat-color: var(--color-flaky)">
             <div class="stat-label">⚠️ Flaky</div>
-            <div class="stat-value" style="color: var(--color-flaky)">${runSummary.flaky}</div>
+            <div class="stat-value" style="color: var(--color-flaky)">${String(runSummary.flaky)}</div>
             ${runSummary.flaky > 0 ? '<div class="stat-change negative">Needs attention</div>' : '<div class="stat-change positive">None detected</div>'}
           </div>
           <div class="card stat-card" style="--stat-color: var(--brand-primary)">
             <div class="stat-label">📊 Total</div>
-            <div class="stat-value">${runSummary.totalTests}</div>
-            <div class="stat-change">${Math.round(runSummary.duration / (runSummary.totalTests || 1))}ms avg</div>
+            <div class="stat-value">${String(runSummary.totalTests)}</div>
+            <div class="stat-change">${String(Math.round(runSummary.duration / (runSummary.totalTests || 1)))}ms avg</div>
           </div>
         </div>
         ${this.renderQuickInsights(tests, runSummary)}
@@ -243,7 +243,7 @@ ${getClientScript()}
           <div class="insight-header">
             <div>
               <div class="insight-title">🐌 Slowest Test</div>
-              <div class="insight-value">${slowest.duration}ms</div>
+              <div class="insight-value">${String(slowest.duration)}ms</div>
               <div class="insight-subtitle">${escapeHtml(slowest.title.substring(0, 40))}${slowest.title.length > 40 ? "..." : ""}</div>
             </div>
             <div class="insight-icon">⏱️</div>
@@ -253,7 +253,7 @@ ${getClientScript()}
           <div class="insight-header">
             <div>
               <div class="insight-title">⚠️ Most Retried</div>
-              <div class="insight-value">${flakiest.retries}</div>
+              <div class="insight-value">${String(flakiest.retries)}</div>
               <div class="insight-subtitle">${flakiest.retries > 0 ? escapeHtml(flakiest.title.substring(0, 40)) + (flakiest.title.length > 40 ? "..." : "") : "No retries needed"}</div>
             </div>
             <div class="insight-icon">🔄</div>
@@ -264,7 +264,7 @@ ${getClientScript()}
             <div>
               <div class="insight-title">📊 Pass Rate</div>
               <div class="insight-value">${passRate}%</div>
-              <div class="insight-subtitle">${runSummary.passed} of ${runSummary.totalTests} passed</div>
+              <div class="insight-subtitle">${String(runSummary.passed)} of ${String(runSummary.totalTests)} passed</div>
             </div>
             <div class="insight-icon">${parseFloat(passRate) >= 90 ? "🎯" : parseFloat(passRate) >= 70 ? "📈" : "📉"}</div>
           </div>
@@ -287,16 +287,16 @@ ${getClientScript()}
                   <span class="badge badge-danger">FAILED</span>
                 </div>
                 <div class="test-meta">
-                  <span class="test-meta-item">📄 ${escapeHtml(t.file.split("/").pop() || t.file)}</span>
-                  <span class="test-meta-item">⏱️ ${t.duration}ms</span>
-                  ${t.retries > 0 ? `<span class="test-meta-item">🔄 ${t.retries} retries</span>` : ""}
+                  <span class="test-meta-item">📄 ${escapeHtml(t.file.split("/").pop() ?? t.file)}</span>
+                  <span class="test-meta-item">⏱️ ${String(t.duration)}ms</span>
+                  ${t.retries > 0 ? `<span class="test-meta-item">🔄 ${String(t.retries)} retries</span>` : ""}
                 </div>
               </div>
             `,
               )
               .join("")}
           </div>
-          ${failedTests.length > 10 ? `<p style="text-align: center; margin-top: 1rem; color: var(--text-secondary);">Showing 10 of ${failedTests.length} failures. View all in Tests tab.</p>` : ""}
+          ${failedTests.length > 10 ? `<p style="text-align: center; margin-top: 1rem; color: var(--text-secondary);">Showing 10 of ${String(failedTests.length)} failures. View all in Tests tab.</p>` : ""}
         </div>`;
   }
 
@@ -318,10 +318,10 @@ ${getClientScript()}
             <input type="text" id="testSearch" placeholder="Search tests..." onkeyup="filterTests()">
           </div>
           <div class="filter-group">
-            <div class="filter-chip active" data-filter="all" onclick="filterByStatus('all')">All (${runSummary.totalTests})</div>
-            <div class="filter-chip" data-filter="failed" onclick="filterByStatus('failed')">Failed (${runSummary.failed})</div>
-            <div class="filter-chip" data-filter="passed" onclick="filterByStatus('passed')">Passed (${runSummary.passed})</div>
-            ${runSummary.flaky > 0 ? `<div class="filter-chip" data-filter="flaky" onclick="filterByStatus('flaky')">Flaky (${runSummary.flaky})</div>` : ""}
+            <div class="filter-chip active" data-filter="all" onclick="filterByStatus('all')">All (${String(runSummary.totalTests)})</div>
+            <div class="filter-chip" data-filter="failed" onclick="filterByStatus('failed')">Failed (${String(runSummary.failed)})</div>
+            <div class="filter-chip" data-filter="passed" onclick="filterByStatus('passed')">Passed (${String(runSummary.passed)})</div>
+            ${runSummary.flaky > 0 ? `<div class="filter-chip" data-filter="flaky" onclick="filterByStatus('flaky')">Flaky (${String(runSummary.flaky)})</div>` : ""}
           </div>
         </div>
         <div class="test-list" id="testList">
@@ -334,9 +334,9 @@ ${getClientScript()}
                 <span class="badge ${t.status === "failed" || t.status === "timedOut" ? "badge-danger" : t.status === "passed" ? "badge-success" : "badge-flaky"}">${t.status.toUpperCase()}</span>
               </div>
               <div class="test-meta">
-                <span class="test-meta-item">📄 ${escapeHtml(t.file.split("/").pop() || t.file)}</span>
-                <span class="test-meta-item">⏱️ ${t.duration}ms</span>
-                ${t.retries > 0 ? `<span class="test-meta-item">🔄 ${t.retries} ${t.retries === 1 ? "retry" : "retries"}</span>` : ""}
+                <span class="test-meta-item">📄 ${escapeHtml(t.file.split("/").pop() ?? t.file)}</span>
+                <span class="test-meta-item">⏱️ ${String(t.duration)}ms</span>
+                ${t.retries > 0 ? `<span class="test-meta-item">🔄 ${String(t.retries)} ${t.retries === 1 ? "retry" : "retries"}</span>` : ""}
               </div>
             </div>
           `,
@@ -448,7 +448,7 @@ ${getClientScript()}
                 (fix, i) => `
               <div style="padding: 1rem; border-bottom: 1px solid var(--border-color);">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                  <strong style="color: var(--text-primary);">STEP ${i + 1}: ${fix.area.toUpperCase()} Check</strong>
+                  <strong style="color: var(--text-primary);">STEP ${String(i + 1)}: ${fix.area.toUpperCase()} Check</strong>
                   <span class="confidence-badge" style="background: ${fix.risk === "high" ? "rgba(239, 68, 68, 0.1)" : "var(--bg-primary)"}; color: ${fix.risk === "high" ? "var(--color-danger)" : "var(--text-secondary)"};">Risk: ${fix.risk}</span>
                 </div>
                 <ol style="padding-left: 1.2rem; color: var(--text-secondary); margin-bottom: 0.5rem;">${fix.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ol>
@@ -473,8 +473,8 @@ ${getClientScript()}
 
   private renderPatternsSection(patterns: PatternOutput | null): string {
     if (!patterns) return "";
-    const flaky = patterns.flakyTests || [];
-    const slow = patterns.regressions || [];
+    const flaky = patterns.flakyTests;
+    const slow = patterns.regressions;
     if (flaky.length === 0 && slow.length === 0) return "";
 
     return `
@@ -499,7 +499,7 @@ ${getClientScript()}
                   .slice(0, 5)
                   .map(
                     (r: { testId: string; avgDurationMs: number; increasePercent: number }) => `
-            <div class="pattern-card"><div style="display:flex; justify-content:space-between;"><strong>${escapeHtml(r.testId.slice(0, 30))}...</strong><span class="badge error">+${r.increasePercent}% slower</span></div><div style="font-size: 0.8rem; color: #718096; margin-top: 0.2rem;">Avg Duration: ${(r.avgDurationMs / 1000).toFixed(2)}s</div></div>
+            <div class="pattern-card"><div style="display:flex; justify-content:space-between;"><strong>${escapeHtml(r.testId.slice(0, 30))}...</strong><span class="badge error">+${String(r.increasePercent)}% slower</span></div><div style="font-size: 0.8rem; color: #718096; margin-top: 0.2rem;">Avg Duration: ${(r.avgDurationMs / 1000).toFixed(2)}s</div></div>
           `,
                   )
                   .join("")}</div>`
@@ -556,7 +556,7 @@ ${getClientScript()}
     metrics: NormalizedSystemMetrics[],
     telemetrySummary: TelemetrySummaryOutput | null,
     correlations: Finding[],
-    config: ReportContext["config"],
+    _config: ReportContext["config"],
   ): string {
     const insightsSection = this.renderTelemetryInsights(correlations, telemetrySummary);
 
@@ -645,10 +645,10 @@ ${getClientScript()}
             <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
                <div>🔴 CPU Max Load: <strong>${summary.cpu.maxLoad1.toFixed(2)}</strong></div>
                <div>🟣 Mem Max RSS: <strong>${summary.memory.maxRssMb.toFixed(0)} MB</strong></div>
-               ${summary.disk ? `<div>💾 Disk Free: <strong>${summary.disk.minFreeGb.toFixed(2)} GB</strong></div>` : ""}
+               <div>💾 Disk Free: <strong>${summary.disk.minFreeGb.toFixed(2)} GB</strong></div>
             </div>
-            ${hasSteal ? `<div style="color: var(--color-danger); font-weight:bold; margin-top:0.5rem;">⚠️ High CPU Steal Detected (${summary.cpu.maxStealPct}%) - Noisy Neighbor</div>` : ""}
-            ${hasPressure ? `<div style="color: var(--color-danger); font-weight:bold; margin-top:0.5rem;">⚠️ Memory Pressure Detected (${summary.memory.maxPressurePct}%)</div>` : ""}
+            ${hasSteal ? `<div style="color: var(--color-danger); font-weight:bold; margin-top:0.5rem;">⚠️ High CPU Steal Detected (${String(summary.cpu.maxStealPct)}%) - Noisy Neighbor</div>` : ""}
+            ${hasPressure ? `<div style="color: var(--color-danger); font-weight:bold; margin-top:0.5rem;">⚠️ Memory Pressure Detected (${String(summary.memory.maxPressurePct)}%)</div>` : ""}
           </div>`
             : ""
         }

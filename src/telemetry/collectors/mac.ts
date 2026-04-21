@@ -83,7 +83,7 @@ export async function collectMacMetrics(): Promise<MetricsPatch> {
         };
       }
     } catch {}
-  } catch (error) {
+  } catch {
     // Ignore global errors
   }
 

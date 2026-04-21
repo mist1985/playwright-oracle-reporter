@@ -18,14 +18,14 @@ export class TelemetryExporter {
    */
   static isCI(): boolean {
     return !!(
-      process.env.CI ||
-      process.env.CONTINUOUS_INTEGRATION ||
-      process.env.BUILD_NUMBER ||
-      process.env.GITHUB_ACTIONS ||
-      process.env.GITLAB_CI ||
-      process.env.CIRCLECI ||
-      process.env.TRAVIS ||
-      process.env.JENKINS_URL ||
+      process.env.CI ??
+      process.env.CONTINUOUS_INTEGRATION ??
+      process.env.BUILD_NUMBER ??
+      process.env.GITHUB_ACTIONS ??
+      process.env.GITLAB_CI ??
+      process.env.CIRCLECI ??
+      process.env.TRAVIS ??
+      process.env.JENKINS_URL ??
       process.env.TEAMCITY_VERSION
     );
   }
@@ -95,7 +95,7 @@ export class TelemetryExporter {
     const csv = [headers.join(","), ...rows.map((row: string[]) => row.join(","))].join("\n");
 
     fs.writeFileSync(outputPath, csv);
-    console.log(`✅ Telemetry CSV exported to: ${outputPath} (${rows.length} samples)`);
+    console.log(`✅ Telemetry CSV exported to: ${outputPath} (${String(rows.length)} samples)`);
   }
 
   /**
@@ -178,7 +178,7 @@ export class StreamingTelemetryWriter {
     this.stream.write("}");
     this.stream.end();
 
-    console.log(`✅ Streamed ${this.sampleCount} telemetry samples to: ${this.outputPath}`);
+    console.log(`✅ Streamed ${String(this.sampleCount)} telemetry samples to: ${this.outputPath}`);
     this.stream = null;
   }
 

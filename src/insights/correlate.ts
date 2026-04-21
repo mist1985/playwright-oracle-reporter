@@ -31,10 +31,10 @@ export class CorrelationEngine {
       if (!window || window.samples.length === 0) continue;
 
       // Check for correlations
-      const maxLoad = Math.max(...window.samples.map((m) => m.cpu?.load1 || 0));
-      const maxPressure = Math.max(...window.samples.map((m) => m.memory?.pressurePct || 0));
-      const maxSteal = Math.max(...window.samples.map((m) => m.cpu?.stealPct || 0));
-      const maxIowait = Math.max(...window.samples.map((m) => m.cpu?.iowaitPct || 0));
+      const maxLoad = Math.max(...window.samples.map((m) => m.cpu.load1));
+      const maxPressure = Math.max(...window.samples.map((m) => m.memory.pressurePct ?? 0));
+      const maxSteal = Math.max(...window.samples.map((m) => m.cpu.stealPct ?? 0));
+      const _maxIowait = Math.max(...window.samples.map((m) => m.cpu.iowaitPct ?? 0));
 
       if (maxLoad > THRESHOLDS.LOAD1) {
         findings.push({
@@ -43,12 +43,12 @@ export class CorrelationEngine {
           kind: "telemetry",
           title: "Elevated CPU Load Correlated with Failure",
           confidence: 0.6,
-          summary: `Test "${test.title}" failed during period of high CPU load (${maxLoad.toFixed(1)}).`,
-          details: `Window: ${window.samples.length} samples. Max load1: ${maxLoad.toFixed(2)}.`,
+          summary: `Test "${test.title}" failed during period of high CPU load (${String(maxLoad.toFixed(1))}).`,
+          details: `Window: ${String(window.samples.length)} samples. Max load1: ${String(maxLoad.toFixed(2))}.`,
           evidenceRefs: [
             `test: ${test.testId}`,
-            `cpu.load1: ${maxLoad.toFixed(2)}`,
-            `window: ${window.samples.length} samples`,
+            `cpu.load1: ${String(maxLoad.toFixed(2))}`,
+            `window: ${String(window.samples.length)} samples`,
           ],
           recommendedActions: [
             "Reduce parallel test workers.",
@@ -65,9 +65,9 @@ export class CorrelationEngine {
           kind: "telemetry",
           title: "Memory Pressure Correlated with Failure",
           confidence: 0.7,
-          summary: `Test "${test.title}" failed during period of memory pressure (${maxPressure}%).`,
-          details: `Window: ${window.samples.length} samples. Max pressure: ${maxPressure}%.`,
-          evidenceRefs: [`test: ${test.testId}`, `memory.pressure: ${maxPressure}%`],
+          summary: `Test "${test.title}" failed during period of memory pressure (${String(maxPressure)}%).`,
+          details: `Window: ${String(window.samples.length)} samples. Max pressure: ${String(maxPressure)}%.`,
+          evidenceRefs: [`test: ${test.testId}`, `memory.pressure: ${String(maxPressure)}%`],
           recommendedActions: [
             "Increase available memory.",
             "Check for memory leaks in tests or application.",
@@ -83,9 +83,9 @@ export class CorrelationEngine {
           kind: "telemetry",
           title: "CPU Steal (Noisy Neighbor) Correlated with Failure",
           confidence: 0.5,
-          summary: `Test "${test.title}" failed during period of high CPU steal (${maxSteal.toFixed(1)}%).`,
+          summary: `Test "${test.title}" failed during period of high CPU steal (${String(maxSteal.toFixed(1))}%).`,
           details: "High steal time indicates the host is overcommitted or sharing resources.",
-          evidenceRefs: [`test: ${test.testId}`, `cpu.steal: ${maxSteal.toFixed(1)}%`],
+          evidenceRefs: [`test: ${test.testId}`, `cpu.steal: ${String(maxSteal.toFixed(1))}%`],
           recommendedActions: [
             "Retry on a different CI runner.",
             "Request dedicated/reserved resources.",
@@ -113,12 +113,12 @@ export class CorrelationEngine {
 
     return {
       startMs: test.startTimeMs!,
-      endMs: test.endTimeMs || test.startTimeMs! + test.durationMs,
+      endMs: test.endTimeMs ?? test.startTimeMs! + test.durationMs,
       samples: window.samples.length,
-      maxLoad1: Math.max(...window.samples.map((m) => m.cpu?.load1 || 0)),
-      maxPressurePct: Math.max(...window.samples.map((m) => m.memory?.pressurePct || 0)),
-      maxIowaitPct: Math.max(...window.samples.map((m) => m.cpu?.iowaitPct || 0)),
-      maxStealPct: Math.max(...window.samples.map((m) => m.cpu?.stealPct || 0)),
+      maxLoad1: Math.max(...window.samples.map((m) => m.cpu.load1)),
+      maxPressurePct: Math.max(...window.samples.map((m) => m.memory.pressurePct ?? 0)),
+      maxIowaitPct: Math.max(...window.samples.map((m) => m.cpu.iowaitPct ?? 0)),
+      maxStealPct: Math.max(...window.samples.map((m) => m.cpu.stealPct ?? 0)),
     };
   }
 
@@ -130,7 +130,7 @@ export class CorrelationEngine {
 
     const start = test.startTimeMs - CAPS.TELEMETRY_CORRELATION_BUFFER_MS;
     const end =
-      (test.endTimeMs || test.startTimeMs + test.durationMs) + CAPS.TELEMETRY_CORRELATION_BUFFER_MS;
+      (test.endTimeMs ?? test.startTimeMs + test.durationMs) + CAPS.TELEMETRY_CORRELATION_BUFFER_MS;
 
     const samples = telemetry.filter((m) => m.timestamp >= start && m.timestamp <= end);
     return { samples };

@@ -56,7 +56,9 @@ export class FileSystemError extends ReporterError {
       cause: cause?.message,
     });
     if (cause) {
-      this.stack = `${this.stack}\nCaused by: ${cause.stack}`;
+      const currentStack = this.stack ?? "";
+      const causeStack = cause.stack ?? "";
+      this.stack = `${currentStack}\nCaused by: ${causeStack}`;
     }
   }
 }
@@ -124,7 +126,9 @@ export class TelemetryError extends ReporterError {
   ) {
     super(message, "TELEMETRY_ERROR", { platform, cause: cause?.message });
     if (cause) {
-      this.stack = `${this.stack}\nCaused by: ${cause.stack}`;
+      const currentStack = this.stack ?? "";
+      const causeStack = cause.stack ?? "";
+      this.stack = `${currentStack}\nCaused by: ${causeStack}`;
     }
   }
 }
@@ -166,7 +170,9 @@ export class TestExecutionError extends ReporterError {
   ) {
     super(message, "TEST_EXECUTION_ERROR", { testId, cause: cause?.message });
     if (cause) {
-      this.stack = `${this.stack}\nCaused by: ${cause.stack}`;
+      const currentStack = this.stack ?? "";
+      const causeStack = cause.stack ?? "";
+      this.stack = `${currentStack}\nCaused by: ${causeStack}`;
     }
   }
 }
@@ -222,7 +228,7 @@ export function formatError(error: unknown): string {
     return JSON.stringify(error.toJSON(), null, 2);
   }
   if (isError(error)) {
-    return `${error.name}: ${error.message}\n${error.stack || ""}`;
+    return `${error.name}: ${error.message}\n${error.stack ?? ""}`;
   }
   return String(error);
 }

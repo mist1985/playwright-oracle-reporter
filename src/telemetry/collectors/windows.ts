@@ -61,7 +61,7 @@ export async function collectWindowsMetrics(): Promise<MetricsPatch> {
       if (result.exitCode === 0) {
         const match = result.stdout.match(/FreeSpace=(\d+)/);
 
-        if (match && match[1]) {
+        if (match?.[1]) {
           const freeBytes = parseInt(match[1], 10);
           if (!isNaN(freeBytes)) {
             patch.disk = {
@@ -91,7 +91,7 @@ export async function collectWindowsMetrics(): Promise<MetricsPatch> {
       if (result.exitCode === 0) {
         const match = result.stdout.match(/LoadPercentage=(\d+)/);
 
-        if (match && match[1]) {
+        if (match?.[1]) {
           const loadPct = parseInt(match[1], 10);
           if (!isNaN(loadPct)) {
             // Approximate sys/user split since WMIC only gives total load
@@ -126,7 +126,7 @@ export async function collectWindowsMetrics(): Promise<MetricsPatch> {
       if (result.exitCode === 0) {
         const match = result.stdout.match(/FreePhysicalMemory=(\d+)/); // Returns in KB
 
-        if (match && match[1]) {
+        if (match?.[1]) {
           const freeKb = parseInt(match[1], 10);
           if (!isNaN(freeKb)) {
             patch.memory = {

@@ -132,7 +132,7 @@ export class CodeAnalyzer {
       });
 
       return findings;
-    } catch (error) {
+    } catch {
       return [];
     }
   }

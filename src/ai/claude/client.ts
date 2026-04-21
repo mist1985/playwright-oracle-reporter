@@ -146,9 +146,9 @@ export class ClaudeClient {
       .execute(async () => {
         return this.executeRequest(payload);
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         this.errorCount++;
-        if (err.message.includes("Circuit breaker")) {
+        if (err instanceof Error && err.message.includes("Circuit breaker")) {
           console.warn(
             "⚠️  Claude circuit breaker triggered - falling back to rules-based analysis",
           );
@@ -196,7 +196,7 @@ export class ClaudeClient {
             attempts++;
             const backoff = Math.min(1000 * Math.pow(2, attempts), 10000);
             console.warn(
-              `⚠️  Claude rate limit or overload hit, retrying in ${backoff}ms (attempt ${attempts}/${this.config.retries})`,
+              `⚠️  Claude rate limit or overload hit, retrying in ${String(backoff)}ms (attempt ${String(attempts)}/${String(this.config.retries)})`,
             );
             await new Promise((resolve) => setTimeout(resolve, backoff));
             continue;
@@ -205,7 +205,9 @@ export class ClaudeClient {
           if (res.status >= 500) {
             attempts++;
             const backoff = Math.min(1000 * Math.pow(2, attempts), 10000);
-            console.warn(`⚠️  Claude server error (${res.status}), retrying in ${backoff}ms`);
+            console.warn(
+              `⚠️  Claude server error (${String(res.status)}), retrying in ${String(backoff)}ms`,
+            );
             await new Promise((resolve) => setTimeout(resolve, backoff));
             continue;
           }
@@ -220,11 +222,11 @@ export class ClaudeClient {
             return null;
           }
 
-          console.error(`❌ Claude API error ${res.status}:`, errorBody);
+          console.error(`❌ Claude API error ${String(res.status)}:`, errorBody);
           return null;
         }
 
-        const data = ((await res.json()) as ClaudeMessageResponse) ?? {};
+        const data = ((await res.json()) as ClaudeMessageResponse | null) ?? {};
         const toolUse = data.content?.find(
           (block) => block.type === "tool_use" && block.name === "record_analysis",
         );
@@ -245,7 +247,7 @@ export class ClaudeClient {
         const name = e instanceof Error ? e.name : "";
 
         if (name === "AbortError") {
-          console.warn(`⚠️  Claude request timeout after ${this.config.timeoutMs}ms`);
+          console.warn(`⚠️  Claude request timeout after ${String(this.config.timeoutMs)}ms`);
         } else if (message.includes("fetch")) {
           console.warn(`⚠️  Network error calling Claude: ${message}`);
         } else {
@@ -253,7 +255,7 @@ export class ClaudeClient {
         }
 
         if (attempts > this.config.retries) {
-          console.error(`❌ Claude request failed after ${this.config.retries} retries`);
+          console.error(`❌ Claude request failed after ${String(this.config.retries)} retries`);
           return null;
         }
 

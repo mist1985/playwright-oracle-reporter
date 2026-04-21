@@ -3,7 +3,7 @@
  * All rights reserved.
  */
 
-import { HistoryRecord, PatternOutput, SCHEMA_VERSION, CAPS, AggregatedTestStat } from "../types";
+import { HistoryRecord, PatternOutput, SCHEMA_VERSION, AggregatedTestStat } from "../types";
 import { FlakinessAnalyzer, TestStatistics } from "../insights/flakiness-analyzer";
 import type { TestSummary } from "../report/interfaces";
 import { SUPPORTED_PLATFORMS, type SupportedPlatform } from "../common/constants";
@@ -87,7 +87,7 @@ export class PatternAnalyzer {
           if (result.signatureHash) {
             stat.signatures.set(
               result.signatureHash,
-              (stat.signatures.get(result.signatureHash) || 0) + 1,
+              (stat.signatures.get(result.signatureHash) ?? 0) + 1,
             );
           }
         }
@@ -97,7 +97,7 @@ export class PatternAnalyzer {
         }
 
         // OS tracking
-        const os = record.os || "unknown";
+        const os = record.os ?? "unknown";
         if (!stat.byOS.has(os)) {
           stat.byOS.set(os, []);
         }
@@ -228,7 +228,7 @@ export class PatternAnalyzer {
     const byTestAndOS: Map<string, Map<string, string[]>> = new Map();
 
     for (const record of records) {
-      const os = record.os || "unknown";
+      const os = record.os ?? "unknown";
       for (const [testId, result] of Object.entries(record.tests)) {
         if (!byTestAndOS.has(testId)) {
           byTestAndOS.set(testId, new Map());

@@ -33,7 +33,7 @@ import {
   validateNodeVersion,
 } from "../common/validation";
 import { getLogger } from "../common/logger";
-import { ConfigurationError, FileSystemError } from "../common/errors";
+// Removed unused errors import
 
 const logger = getLogger();
 
@@ -98,19 +98,19 @@ export function validateConfig(options: ConfigOptions = {}): ValidationResult {
 
   try {
     // Get config from options or env with defaults
-    const outputDir = options.outputDir || getEnvVar("OUTPUT_DIR") || CONFIG_DEFAULTS.OUTPUT_DIR;
+    const outputDir = options.outputDir ?? getEnvVar("OUTPUT_DIR") ?? CONFIG_DEFAULTS.OUTPUT_DIR;
     const historyDir =
-      options.historyDir || getEnvVar("HISTORY_DIR") || CONFIG_DEFAULTS.HISTORY_DIR;
+      options.historyDir ?? getEnvVar("HISTORY_DIR") ?? CONFIG_DEFAULTS.HISTORY_DIR;
     const openReport =
       typeof options.openReport === "boolean" ? options.openReport : shouldAutoOpenReport();
-    const aiMode = options.aiMode || getEnvVar("AI_MODE") || CONFIG_DEFAULTS.AI_MODE;
+    const aiMode = options.aiMode ?? getEnvVar("AI_MODE") ?? CONFIG_DEFAULTS.AI_MODE;
     const telemetryIntervalStr =
-      getEnvVar("TELEMETRY_INTERVAL") || String(CONFIG_DEFAULTS.TELEMETRY_INTERVAL_SECONDS);
+      getEnvVar("TELEMETRY_INTERVAL") ?? String(CONFIG_DEFAULTS.TELEMETRY_INTERVAL_SECONDS);
     const telemetryInterval =
-      options.telemetryInterval ||
+      options.telemetryInterval ??
       validateInteger(telemetryIntervalStr, "telemetryInterval", 1, 60);
-    const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
-    const claudeApiKey = options.claudeApiKey || process.env.ANTHROPIC_API_KEY;
+    const openaiApiKey = options.openaiApiKey ?? process.env.OPENAI_API_KEY;
+    const claudeApiKey = options.claudeApiKey ?? process.env.ANTHROPIC_API_KEY;
 
     // Validate Node.js version
     const nodeVersion = process.versions.node;
@@ -132,7 +132,7 @@ export function validateConfig(options: ConfigOptions = {}): ValidationResult {
     try {
       validateAIMode(aiMode);
       result.info.aiMode = aiMode;
-    } catch (error) {
+    } catch (_error) {
       result.valid = false;
       result.errors.push(
         `Invalid AI mode: ${aiMode}. Valid options: ${Object.values(VALIDATION_CONSTRAINTS.AI_MODES).join(", ")}`,
@@ -152,9 +152,9 @@ export function validateConfig(options: ConfigOptions = {}): ValidationResult {
     try {
       validateTelemetryInterval(telemetryInterval);
       result.info.telemetryInterval = telemetryInterval;
-    } catch (error) {
+    } catch (_error) {
       result.warnings.push(
-        `Telemetry interval ${telemetryInterval}s is outside recommended range (${VALIDATION_CONSTRAINTS.TELEMETRY_INTERVAL.MIN}-${VALIDATION_CONSTRAINTS.TELEMETRY_INTERVAL.MAX}). May impact performance.`,
+        `Telemetry interval ${String(telemetryInterval)}s is outside recommended range (${String(VALIDATION_CONSTRAINTS.TELEMETRY_INTERVAL.MIN)}-${String(VALIDATION_CONSTRAINTS.TELEMETRY_INTERVAL.MAX)}). May impact performance.`,
       );
       result.info.telemetryInterval = telemetryInterval;
     }
@@ -210,7 +210,7 @@ export function validateConfig(options: ConfigOptions = {}): ValidationResult {
       result.info.outputDir = outputPath;
     } catch (err) {
       result.valid = false;
-      result.errors.push(`Output directory ${outputDir} is not writable: ${err}`);
+      result.errors.push(`Output directory ${outputDir} is not writable: ${String(err)}`);
       logger.error("Output directory validation failed", {
         outputDir,
         error: err,
@@ -249,7 +249,7 @@ export function validateConfig(options: ConfigOptions = {}): ValidationResult {
 
     if (freeMem < SYSTEM_REQUIREMENTS.MIN_FREE_MEMORY_BYTES) {
       result.warnings.push(
-        `Low available memory (< ${SYSTEM_REQUIREMENTS.MIN_FREE_MEMORY_BYTES / BYTES.MB}MB). Reporter may experience performance issues with large test suites.`,
+        `Low available memory (< ${String(SYSTEM_REQUIREMENTS.MIN_FREE_MEMORY_BYTES / BYTES.MB)}MB). Reporter may experience performance issues with large test suites.`,
       );
       logger.warn("Low available memory detected", {
         freeMem,
@@ -263,7 +263,7 @@ export function validateConfig(options: ConfigOptions = {}): ValidationResult {
 
     if (cpuCount < SYSTEM_REQUIREMENTS.MIN_CPU_CORES) {
       result.warnings.push(
-        `Only ${cpuCount} CPU core(s) available. Telemetry collection may impact test performance.`,
+        `Only ${String(cpuCount)} CPU core(s) available. Telemetry collection may impact test performance.`,
       );
       logger.warn("Low CPU core count detected", {
         cpuCount,
@@ -312,19 +312,19 @@ export function printValidationResults(result: ValidationResult): void {
   }
 
   console.log("ℹ️  Configuration:");
-  console.log(`   • Node.js: ${result.info.nodeVersion}`);
-  console.log(`   • Platform: ${result.info.platform} (${result.info.arch})`);
-  console.log(`   • CPU Cores: ${result.info.cpuCores}`);
+  console.log(`   • Node.js: ${String(result.info.nodeVersion)}`);
+  console.log(`   • Platform: ${String(result.info.platform)} (${String(result.info.arch)})`);
+  console.log(`   • CPU Cores: ${String(result.info.cpuCores)}`);
   const mem = result.info.memory as MemoryInfo | undefined;
   if (mem) {
     console.log(`   • Memory: ${mem.free} free of ${mem.total} (${mem.usage} used)`);
   }
-  console.log(`   • AI Mode: ${result.info.aiMode}`);
-  console.log(`   • Auto Open Report: ${result.info.openReport}`);
-  console.log(`   • Telemetry Interval: ${result.info.telemetryInterval}s`);
-  console.log(`   • Output Dir: ${result.info.outputDir}`);
+  console.log(`   • AI Mode: ${String(result.info.aiMode)}`);
+  console.log(`   • Auto Open Report: ${String(result.info.openReport)}`);
+  console.log(`   • Telemetry Interval: ${String(result.info.telemetryInterval)}s`);
+  console.log(`   • Output Dir: ${String(result.info.outputDir)}`);
   if (result.info.historyDir) {
-    console.log(`   • History Dir: ${result.info.historyDir}`);
+    console.log(`   • History Dir: ${String(result.info.historyDir)}`);
   }
 
   if (result.valid) {

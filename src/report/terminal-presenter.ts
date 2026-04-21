@@ -23,7 +23,9 @@ export class TerminalPresenter implements ITerminalPresenter {
 
   printTestStart(index: number, total: number, file: string, line: number, title: string): void {
     const relativeFile = path.relative(process.cwd(), file);
-    this.safeLog(`  \x1b[2m[${index}/${total}]\x1b[0m ${relativeFile}:${line} › ${title}`);
+    this.safeLog(
+      `  \x1b[2m[${String(index)}/${String(total)}]\x1b[0m ${relativeFile}:${String(line)} › ${title}`,
+    );
   }
 
   printTestStep(title: string): void {
@@ -34,7 +36,7 @@ export class TerminalPresenter implements ITerminalPresenter {
     this.safeLog("");
     this.safeLog(`  ❌ ${test.title}`);
     this.safeLog(
-      `     ${this.createTerminalLink(test.file, `${path.relative(process.cwd(), test.file)}:${test.line}`)}`,
+      `     ${this.createTerminalLink(test.file, `${path.relative(process.cwd(), test.file)}:${String(test.line)}`)}`,
     );
 
     if (test.attachments.length > 0) {
@@ -61,22 +63,21 @@ export class TerminalPresenter implements ITerminalPresenter {
     const flakyColor = runSummary.flaky > 0 ? "\x1b[33m" : "\x1b[90m";
 
     this.safeLog(
-      `   ${failedColor}✗ ${runSummary.failed} failed\x1b[0m  │  ${passedColor}✓ ${runSummary.passed} passed\x1b[0m  │  ${flakyColor}⚠ ${runSummary.flaky} flaky\x1b[0m`,
+      `   ${failedColor}✗ ${String(runSummary.failed)} failed\x1b[0m  │  ${passedColor}✓ ${String(runSummary.passed)} passed\x1b[0m  │  ${flakyColor}⚠ ${String(runSummary.flaky)} flaky\x1b[0m`,
     );
-    this.safeLog("\n" + "─".repeat(60) + "\n");
   }
 
   printFlakinessAnalysis(patterns: PatternOutput, aiResponse: AIResponse | null): void {
-    if (!patterns.flakyTests || patterns.flakyTests.length === 0) return;
+    if (patterns.flakyTests.length === 0) return;
 
     this.safeLog("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     this.safeLog("🔄 Advanced Flakiness Analysis");
     this.safeLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
     patterns.flakyTests.slice(0, 5).forEach((test, index) => {
-      this.safeLog(`${index + 1}. 🧪 ${test.testId.split("-")[0]}...`);
+      this.safeLog(`   ${String(index + 1)}. ${test.testId.split("-")[0]}`);
       this.safeLog(
-        `   Flake Rate: ${(test.flakeRate * 100).toFixed(0)}% (${test.recentStatuses.join(", ")})`,
+        `   Flake Rate: ${String((test.flakeRate * 100).toFixed(0))}% (${test.recentStatuses.join(", ")})`,
       );
 
       if (test.rootCauses && test.rootCauses.length > 0) {
@@ -85,12 +86,12 @@ export class TerminalPresenter implements ITerminalPresenter {
         test.rootCauses.forEach((rc) => {
           const confidenceColor = rc.confidence > 80 ? "🟢" : rc.confidence > 50 ? "🟡" : "🔴";
           this.safeLog(
-            `\n   ${confidenceColor} ${rc.type.toUpperCase()} (${rc.confidence}% confidence)`,
+            `\n   ${confidenceColor} ${rc.type.toUpperCase()} (${String(rc.confidence)}% confidence)`,
           );
           this.safeLog(`   Algorithmic Finding: ${rc.description}`);
-          if (rc.evidence.value) {
-            this.safeLog(`   Evidence: ${rc.evidence.metric}: ${rc.evidence.value}`);
-          }
+          this.safeLog(
+            `   Evidence: ${rc.evidence.metric ?? "Metric"}: ${String(rc.evidence.value)}`,
+          );
 
           if (aiResponse?.algorithmic_findings_review) {
             const review = aiResponse.algorithmic_findings_review.find(
@@ -142,9 +143,9 @@ export class TerminalPresenter implements ITerminalPresenter {
     this.safeLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
     failedTests.forEach((test, index) => {
-      this.safeLog(`${index + 1}. ❌ ${test.title}`);
+      this.safeLog(`${String(index + 1)}. ❌ ${test.title}`);
       this.safeLog(
-        `   📄 ${this.createTerminalLink(test.file, `${path.relative(process.cwd(), test.file)}:${test.line}`)}`,
+        `   📄 ${this.createTerminalLink(test.file, `${path.relative(process.cwd(), test.file)}:${String(test.line)}`)}`,
       );
 
       const hasArtifacts = test.attachments.some((a) => a.path);

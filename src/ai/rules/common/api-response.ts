@@ -23,7 +23,7 @@ export class ApiResponseRule implements Rule {
   }
 
   build(ctx: RuleContext): Finding[] {
-    const msg = ctx.test.error.message || "";
+    const msg = ctx.test.error.message ?? "";
     let title = "API Response Error";
     let summary = "An API request returned an error response.";
 

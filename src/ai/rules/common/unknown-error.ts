@@ -14,7 +14,7 @@ export class UnknownErrorRule implements Rule {
   priority = 0; // Lowest priority
   kind: Finding["kind"] = "unknown";
 
-  match(ctx: RuleContext): boolean {
+  match(_ctx: RuleContext): boolean {
     // Always matches as fallback
     return true;
   }

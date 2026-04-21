@@ -28,7 +28,7 @@ export class AssertionMismatchRule implements Rule {
   }
 
   build(ctx: RuleContext): Finding[] {
-    const msg = ctx.test.error.message || "";
+    const msg = ctx.test.error.message ?? "";
     let details = "Assertion comparison failed.";
 
     // Try to extract expected/received

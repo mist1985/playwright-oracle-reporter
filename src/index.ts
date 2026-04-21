@@ -13,7 +13,7 @@
  *
  * @module index
  */
-
+import { execSync } from "child_process";
 import type {
   Reporter,
   FullConfig,
@@ -119,10 +119,10 @@ export default class PlaywrightOracleReporter implements Reporter {
     loadDotenvIfAvailable();
 
     this.config = {
-      outputDir: getEnvVar("OUTPUT_DIR") || options.outputDir || CONFIG_DEFAULTS.OUTPUT_DIR,
-      historyDir: getEnvVar("HISTORY_DIR") || options.historyDir || CONFIG_DEFAULTS.HISTORY_DIR,
+      outputDir: getEnvVar("OUTPUT_DIR") ?? options.outputDir ?? CONFIG_DEFAULTS.OUTPUT_DIR,
+      historyDir: getEnvVar("HISTORY_DIR") ?? options.historyDir ?? CONFIG_DEFAULTS.HISTORY_DIR,
       openReport: shouldAutoOpenReport(options.openReport),
-      runLabel: getEnvVar("RUN_LABEL") || options.runLabel,
+      runLabel: getEnvVar("RUN_LABEL") ?? options.runLabel,
       telemetryInterval:
         PlaywrightOracleReporter.parseEnvInt("TELEMETRY_INTERVAL") ??
         options.telemetryInterval ??
@@ -193,7 +193,7 @@ export default class PlaywrightOracleReporter implements Reporter {
         this.terminal.printTestFailure(summary);
       }
     } catch (error) {
-      this.safeLog(`⚠️  Error processing test result: ${error}`);
+      this.safeLog(`⚠️  Error processing test result: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -228,7 +228,7 @@ export default class PlaywrightOracleReporter implements Reporter {
         this.terminal.printFailedTestsArtifacts(this.tests);
       }
     } catch (error) {
-      this.safeLog(`⚠️  Error generating report: ${error}`);
+      this.safeLog(`⚠️  Error generating report: ${error instanceof Error ? error.message : String(error)}`);
       await this.generateFallbackReport(error);
     }
   }
@@ -457,7 +457,7 @@ export default class PlaywrightOracleReporter implements Reporter {
       duration: result.duration,
       attachments: result.attachments.map((att) => ({
         name: att.name,
-        path: att.path || "",
+        path: att.path ?? "",
         contentType: att.contentType,
       })),
       retries: result.retry,
@@ -466,7 +466,7 @@ export default class PlaywrightOracleReporter implements Reporter {
 
     if (result.error) {
       summary.error = {
-        message: result.error.message || "Unknown error",
+        message: result.error.message ?? "Unknown error",
         stack: result.error.stack,
       };
       const loc = (result.error as Record<string, unknown>).location;
@@ -542,16 +542,16 @@ export default class PlaywrightOracleReporter implements Reporter {
       durationMs: t.duration,
       retries: t.retries,
       attempt: 1,
-      startTimeMs: t.startTime ?? null,
-      endTimeMs: t.startTime ? t.startTime + t.duration : null,
+      startTimeMs: t.startTime,
+      endTimeMs: t.startTime + t.duration,
       error: {
         message: t.error?.message ?? null,
         stack: t.error?.stack ?? null,
       },
       attachments: {
         tracePath: t.attachments.find((a) => a.name === "trace")?.path ?? null,
-        screenshotPath: t.attachments.find((a) => a.contentType?.includes("image"))?.path ?? null,
-        videoPath: t.attachments.find((a) => a.contentType?.includes("video"))?.path ?? null,
+        screenshotPath: t.attachments.find((a) => a.contentType.includes("image"))?.path ?? null,
+        videoPath: t.attachments.find((a) => a.contentType.includes("video"))?.path ?? null,
       },
     }));
   }
@@ -565,8 +565,10 @@ export default class PlaywrightOracleReporter implements Reporter {
 <body style="font-family: system-ui; padding: 2rem; max-width: 800px; margin: 0 auto;">
   <h1>⚠️ Report Generation Error</h1>
   <p>The reporter encountered an error but did not break your tests.</p>
-  <pre style="background: #f5f5f5; padding: 1rem; border-radius: 4px;">${String(error)}</pre>
-  <p><strong>Tests Summary:</strong> ${this.runSummary.totalTests} total, ${this.runSummary.passed} passed, ${this.runSummary.failed} failed</p>
+  <pre style="background: #f5f5f5; padding: 1rem; border-radius: 4px;">${
+    error instanceof Error ? error.message : String(error)
+  }</pre>
+  <p><strong>Tests Summary:</strong> ${String(this.runSummary.totalTests)} total, ${String(this.runSummary.passed)} passed, ${String(this.runSummary.failed)} failed</p>
   <footer style="margin-top: 4rem; padding: 2.5rem 1rem 1.5rem; border-top: 1px solid #e5e7eb; text-align: center; color: #6b7280; font-size: 0.875rem;">
     <div style="margin-bottom: 0.625rem; font-weight: 600; color: #1e293b;">
       <strong>Playwright Oracle Reporter</strong> v1.0.0
@@ -576,7 +578,7 @@ export default class PlaywrightOracleReporter implements Reporter {
 </body></html>`;
       await fs.promises.writeFile(path.join(this.config.outputDir, "index.html"), html, "utf-8");
     } catch (fallbackError) {
-      this.safeLog(`⚠️  Could not generate fallback report: ${fallbackError}`);
+      this.safeLog(`⚠️  Could not generate fallback report: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
     }
   }
 
@@ -607,7 +609,6 @@ export default class PlaywrightOracleReporter implements Reporter {
   /** Open the HTML report in the default browser. */
   private openReportInBrowser(reportPath: string): void {
     try {
-      const { execSync } = require("child_process");
       if (process.platform === "darwin") {
         execSync(`open "${reportPath}"`, { stdio: "ignore" });
       } else if (process.platform === "linux") {

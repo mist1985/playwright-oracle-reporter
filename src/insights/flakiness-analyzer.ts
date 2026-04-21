@@ -188,7 +188,7 @@ export class FlakinessAnalyzer {
     }
 
     const mean = Stats.mean(stats.durations);
-    const stdDev = Stats.stdDev(stats.durations);
+    const _stdDev = Stats.stdDev(stats.durations);
     const cv = Stats.coefficientOfVariation(stats.durations);
     const p95 = Stats.percentile(stats.durations, 95);
     const p50 = Stats.percentile(stats.durations, 50);
@@ -202,11 +202,11 @@ export class FlakinessAnalyzer {
       findings.push({
         type: "timing-issue",
         confidence: Math.round(confidence),
-        description: `Test duration is highly variable (CV=${cv.toFixed(2)}). This suggests timing-dependent behavior.`,
+        description: `Test duration is highly variable (CV=${String(cv.toFixed(2))}). This suggests timing-dependent behavior.`,
         evidence: {
           metric: "duration_variance",
-          value: `${min}ms - ${max}ms (median: ${p50}ms, p95: ${p95}ms)`,
-          context: `High coefficient of variation (${(cv * 100).toFixed(0)}%) indicates unreliable timing`,
+          value: `${String(min)}ms - ${String(max)}ms (median: ${String(p50)}ms, p95: ${String(p95)}ms)`,
+          context: `High coefficient of variation (${String((cv * 100).toFixed(0))}%) indicates unreliable timing`,
         },
       });
     }
@@ -220,7 +220,7 @@ export class FlakinessAnalyzer {
           "Test occasionally takes much longer than average, suggesting resource contention or slow network.",
         evidence: {
           metric: "p95_duration",
-          value: `${p95}ms vs avg ${Math.round(mean)}ms`,
+          value: `${String(p95)}ms vs avg ${String(Math.round(mean))}ms`,
           context: "P95 is more than 2x the average duration",
         },
       });
@@ -271,7 +271,7 @@ export class FlakinessAnalyzer {
         evidence: {
           metric: "flake_rate",
           value: `${(flakeRate * 100).toFixed(0)}%`,
-          context: `${stats.flaky} flaky out of ${stats.total} runs`,
+          context: `${String(stats.flaky)} flaky out of ${String(stats.total)} runs`,
         },
       });
     }
@@ -297,7 +297,7 @@ export class FlakinessAnalyzer {
           "Long, variable test duration suggests dependency on external network requests.",
         evidence: {
           metric: "avg_duration",
-          value: `${Math.round(mean)}ms with high variance`,
+          value: `${String(Math.round(mean))}ms with high variance`,
           context: "Tests depending on real network calls are inherently flaky",
         },
       });
@@ -322,7 +322,7 @@ export class FlakinessAnalyzer {
 
         suggestions.push({
           description: "Increase timeout to accommodate duration variance",
-          codeExample: `await expect(locator).toBeVisible({ timeout: ${recommendedTimeout} });`,
+          codeExample: `await expect(locator).toBeVisible({ timeout: ${String(recommendedTimeout)} });`,
           expectedImpact: "Should reduce timeout failures by ~70%",
           risk: "low",
         });

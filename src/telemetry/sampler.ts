@@ -77,33 +77,33 @@ export class TelemetrySampler {
         // CPU
         cpu: {
           ...common.cpu,
-          ...(macPatch.cpu || {}),
-          ...(linuxPatch.cpu || {}),
-          ...(winPatch.cpu || {}),
+          ...(macPatch.cpu ?? {}),
+          ...(linuxPatch.cpu ?? {}),
+          ...(winPatch.cpu ?? {}),
         },
 
         // Process
         process: {
           ...common.process,
-          ...(macPatch.process || {}),
-          ...(linuxPatch.process || {}),
-          ...(winPatch.process || {}),
+          ...(macPatch.process ?? {}),
+          ...(linuxPatch.process ?? {}),
+          ...(winPatch.process ?? {}),
         },
 
         // Memory
         memory: {
           ...common.memory,
-          ...(macPatch.memory || {}),
-          ...(linuxPatch.memory || {}),
-          ...(winPatch.memory || {}),
+          ...(macPatch.memory ?? {}),
+          ...(linuxPatch.memory ?? {}),
+          ...(winPatch.memory ?? {}),
         },
 
         // Disk
         disk: {
           ...common.disk,
-          ...(macPatch.disk || {}),
-          ...(linuxPatch.disk || {}),
-          ...(winPatch.disk || {}),
+          ...(macPatch.disk ?? {}),
+          ...(linuxPatch.disk ?? {}),
+          ...(winPatch.disk ?? {}),
         },
       };
 
@@ -111,7 +111,7 @@ export class TelemetrySampler {
       this.validate(merged);
 
       this.metrics.push(merged);
-    } catch (error) {
+    } catch {
       // Silent fail - never crash reporter
       // console.error(error); // Debug only
     }
@@ -122,7 +122,7 @@ export class TelemetrySampler {
     // If strict mode is on, we could throw, but for Enterprise style we just log once if needed.
     // For this implementation, the type system + deep merge guarantees presence.
     // We check critical fields just in case.
-    if (m.cpu.load1 === undefined || m.memory.totalMb === undefined) {
+    if (m.cpu.load1 === (undefined as unknown) || m.memory.totalMb === (undefined as unknown)) {
       console.warn("PW-AI: Telemetry schema violation detected in sample");
     }
   }

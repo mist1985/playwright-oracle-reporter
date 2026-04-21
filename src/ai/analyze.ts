@@ -15,7 +15,6 @@ import {
   TelemetryWindow,
   HistoryHints,
   SCHEMA_VERSION,
-  CAPS,
 } from "../types";
 import { normalizeSupportedPlatform } from "../common/platform";
 
@@ -35,10 +34,10 @@ export class RulesAnalyzer {
   constructor(runMeta?: Partial<RunMeta>) {
     this.registry = new RuleRegistry();
     this.runMeta = {
-      runId: runMeta?.runId || "unknown",
+      runId: runMeta?.runId ?? "unknown",
       os: runMeta?.os !== undefined ? runMeta.os : normalizeSupportedPlatform(),
-      timestamp: runMeta?.timestamp || Date.now(),
-      browsers: runMeta?.browsers || [],
+      timestamp: runMeta?.timestamp ?? Date.now(),
+      browsers: runMeta?.browsers ?? [],
     };
   }
 
@@ -67,8 +66,8 @@ export class RulesAnalyzer {
 
       // Normalize error
       const normalizedError: NormalizedError = SignatureGenerator.normalizeError(
-        test.error?.message || null,
-        test.error?.stack || null,
+        test.error.message ?? null,
+        test.error.stack ?? null,
       );
 
       // Build context
@@ -76,8 +75,8 @@ export class RulesAnalyzer {
         test,
         normalizedError,
         runMeta: this.runMeta,
-        telemetryWindow: telemetryWindows?.get(test.testId) || null,
-        historyHints: historyHintsMap?.get(test.testId) || null,
+        telemetryWindow: telemetryWindows?.get(test.testId) ?? null,
+        historyHints: historyHintsMap?.get(test.testId) ?? null,
       };
 
       // Evaluate rules
@@ -107,18 +106,18 @@ export class RulesAnalyzer {
    */
   private generatePMSummary(failed: number, timedOut: number, total: number): string {
     if (failed === 0) {
-      return `All ${total} tests passed successfully.`;
+      return `All ${String(total)} tests passed successfully.`;
     }
 
     if (timedOut > failed / 2) {
-      return `Heavy instability: ${timedOut} of ${failed} failures are timeouts. Investigate infrastructure or slow services.`;
+      return `Heavy instability: ${String(timedOut)} of ${String(failed)} failures are timeouts. Investigate infrastructure or slow services.`;
     }
 
     if (failed === 1) {
       return `1 test failed. See findings below for root cause.`;
     }
 
-    return `${failed} tests failed out of ${total}. Review individual test findings for specific fixes.`;
+    return `${String(failed)} tests failed out of ${String(total)}. Review individual test findings for specific fixes.`;
   }
 
   /**
