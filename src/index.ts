@@ -193,7 +193,9 @@ export default class PlaywrightOracleReporter implements Reporter {
         this.terminal.printTestFailure(summary);
       }
     } catch (error) {
-      this.safeLog(`⚠️  Error processing test result: ${error instanceof Error ? error.message : String(error)}`);
+      this.safeLog(
+        `⚠️  Error processing test result: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -228,7 +230,9 @@ export default class PlaywrightOracleReporter implements Reporter {
         this.terminal.printFailedTestsArtifacts(this.tests);
       }
     } catch (error) {
-      this.safeLog(`⚠️  Error generating report: ${error instanceof Error ? error.message : String(error)}`);
+      this.safeLog(
+        `⚠️  Error generating report: ${error instanceof Error ? error.message : String(error)}`,
+      );
       await this.generateFallbackReport(error);
     }
   }
@@ -578,7 +582,9 @@ export default class PlaywrightOracleReporter implements Reporter {
 </body></html>`;
       await fs.promises.writeFile(path.join(this.config.outputDir, "index.html"), html, "utf-8");
     } catch (fallbackError) {
-      this.safeLog(`⚠️  Could not generate fallback report: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+      this.safeLog(
+        `⚠️  Could not generate fallback report: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
+      );
     }
   }
 
