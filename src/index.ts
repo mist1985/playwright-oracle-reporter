@@ -104,6 +104,11 @@ export default class PlaywrightOracleReporter implements Reporter {
   private aiProvider: AIProvider | null = null;
   private baseReportOpened = false;
 
+  private isDebugEnabled(): boolean {
+    const logLevel = (getEnvVar("LOG_LEVEL") ?? "").toUpperCase();
+    return logLevel === "DEBUG" || process.env.PW_AI_DEBUG === "true";
+  }
+
   // ── Delegates ──────────────────────────────────────────
   private readonly htmlGenerator = new HtmlReportGenerator();
   private readonly markdownGenerator = new MarkdownReportGenerator();
@@ -149,6 +154,15 @@ export default class PlaywrightOracleReporter implements Reporter {
 
     this.sampler = new TelemetrySampler(this.config.telemetryInterval);
     this.historyStore = new HistoryStore(this.config.historyDir);
+
+    if (this.isDebugEnabled()) {
+      this.safeLog(
+        `[PW-AI] Reporter config: outputDir=${this.config.outputDir}, openReport=${String(this.config.openReport)}, aiMode=${this.config.aiMode}`,
+      );
+      this.safeLog(
+        `[PW-AI] Env: PW_ORACLE_OPEN_REPORT=${String(process.env.PW_ORACLE_OPEN_REPORT ?? "(unset)")}, CI=${String(process.env.CI ?? "(unset)")}`,
+      );
+    }
   }
 
   // ═══════════════════════════════════════════════════════
@@ -327,7 +341,11 @@ export default class PlaywrightOracleReporter implements Reporter {
 
     if (this.config.openReport && !this.baseReportOpened) {
       this.baseReportOpened = true;
-      this.openReportInBrowser(path.resolve(path.join(this.config.outputDir, "index.html")));
+      const reportToOpen = path.resolve(path.join(this.config.outputDir, "index.html"));
+      if (this.isDebugEnabled()) {
+        this.safeLog(`[PW-AI] Auto-open enabled. Opening: ${reportToOpen}`);
+      }
+      this.openReportInBrowser(reportToOpen);
     }
 
     // ── AI enrichment (optional; done after base report so report is always available) ─────
@@ -656,6 +674,13 @@ export default class PlaywrightOracleReporter implements Reporter {
   /** Open the HTML report in the default browser. */
   private openReportInBrowser(reportPath: string): void {
     try {
+      if (!fs.existsSync(reportPath)) {
+        if (this.isDebugEnabled()) {
+          this.safeLog(`[PW-AI] Auto-open skipped (file not found): ${reportPath}`);
+        }
+        return;
+      }
+
       if (process.platform === "darwin") {
         execSync(`open "${reportPath}"`, { stdio: "ignore" });
       } else if (process.platform === "linux") {
@@ -663,8 +688,12 @@ export default class PlaywrightOracleReporter implements Reporter {
       } else if (process.platform === "win32") {
         execSync(`start "" "${reportPath}"`, { stdio: "ignore" });
       }
-    } catch {
+    } catch (error: unknown) {
       // Opening browser is a nice-to-have, not critical
+      if (this.isDebugEnabled()) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.safeLog(`[PW-AI] Auto-open failed: ${message}`);
+      }
     }
   }
 

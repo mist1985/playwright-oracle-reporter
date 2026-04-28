@@ -35,9 +35,8 @@ const CPU_ESTIMATION = {
  * @remarks Uses WMIC commands which are available on all Windows versions
  */
 export async function collectWindowsMetrics(): Promise<MetricsPatch> {
-  // Skip if not running on Windows
+  // Skip silently if not running on Windows (called every sample interval)
   if (!isWindows()) {
-    logger.debug("Skipping Windows metrics collection on non-Windows platform");
     return {};
   }
 
