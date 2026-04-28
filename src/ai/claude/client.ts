@@ -186,7 +186,6 @@ export class ClaudeClient {
               return -1;
             }
           })();
-          // eslint-disable-next-line no-console
           console.log(
             `[PW-AI] Claude request attempt ${String(attempts + 1)}/${String(this.config.retries + 1)} (model=${this.config.model}, payloadChars=${String(size)}, timeoutMs=${String(this.config.timeoutMs)})`,
           );
@@ -209,7 +208,6 @@ export class ClaudeClient {
         clearTimeout(id);
 
         if (debug) {
-          // eslint-disable-next-line no-console
           console.log(
             `[PW-AI] Claude response status=${String(res.status)} elapsedMs=${String(Date.now() - startedAt)}`,
           );

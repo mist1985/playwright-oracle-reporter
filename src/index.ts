@@ -359,9 +359,9 @@ export default class PlaywrightOracleReporter implements Reporter {
         provider: aiProvider,
         enabled: true,
         success: true,
-        pmSummary: aiResponse.pm_summary ?? null,
-        hypotheses: aiResponse.root_cause_hypotheses.map((h) => h.hypothesis) ?? [],
-        flakyTestsReview: aiResponse.algorithmic_findings_review ?? [],
+        pmSummary: aiResponse.pm_summary,
+        hypotheses: aiResponse.root_cause_hypotheses.map((h) => h.hypothesis),
+        flakyTestsReview: aiResponse.algorithmic_findings_review,
       },
     });
 
