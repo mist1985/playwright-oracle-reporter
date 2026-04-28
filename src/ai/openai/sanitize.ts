@@ -121,6 +121,91 @@ export class PayloadSanitizer {
     return lines.slice(0, 5).join("\n").slice(0, 1000);
   }
 
+  /**
+   * Sanitize a single test for individual AI analysis
+   * Focused payload for faster processing per test
+   *
+   * @param test - Single test to analyze
+   * @param run - Run context for comparison
+   * @param telemetry - Telemetry metrics
+   * @param patterns - Patterns for this specific test
+   * @returns Sanitized payload for single-test analysis
+   */
+  static sanitizeSingleTest(
+    test: TestSummary,
+    run: RunSummary,
+    telemetry: NormalizedSystemMetrics[],
+    patterns: unknown[],
+  ): Record<string, unknown> {
+    // Find patterns for this specific test
+    interface PatternEntry {
+      testId?: string;
+      flakeRate?: number;
+      failureRate?: number;
+      recentStatuses?: string[];
+      rootCauses?: Array<{
+        type: string;
+        confidence: number;
+        description: string;
+        evidence: unknown;
+      }>;
+      suggestedFixes?: Array<{
+        description: string;
+        codeExample?: string;
+        expectedImpact: string;
+        risk: string;
+      }>;
+      overallConfidence?: number;
+    }
+
+    const typedPatterns = patterns as PatternEntry[];
+    const testPattern = typedPatterns.find((p) => p.testId === test.testId);
+
+    return {
+      context: {
+        run: {
+          totalTests: run.totalTests,
+          passed: run.passed,
+          failed: run.failed,
+          flaky: run.flaky,
+        },
+        testNumber: `${run.passed + run.failed} of ${run.totalTests}`,
+      },
+      test: {
+        testId: test.testId,
+        title: test.title,
+        file: this.redactPath(test.file),
+        error: this.cleanError(test.error?.message ?? ""),
+        stackTrace: this.cleanStack(test.error?.stack ?? ""),
+        duration: test.duration,
+        status: test.status,
+      },
+      telemetry: this.summarizeTelemetry(telemetry),
+      history: testPattern
+        ? {
+            flakeRate: testPattern.flakeRate,
+            failureRate: testPattern.failureRate,
+            recentStatuses: testPattern.recentStatuses,
+          }
+        : null,
+      algorithmicAnalysis: testPattern
+        ? {
+            rootCauses: (testPattern.rootCauses ?? []).map((rc) => ({
+              type: rc.type,
+              confidence: rc.confidence,
+              description: rc.description,
+            })),
+            suggestedFixes: (testPattern.suggestedFixes ?? []).map((sf) => ({
+              description: sf.description,
+              expectedImpact: sf.expectedImpact,
+              risk: sf.risk,
+            })),
+            overallConfidence: testPattern.overallConfidence,
+          }
+        : null,
+    };
+  }
+
   private static summarizeTelemetry(
     metrics: NormalizedSystemMetrics[],
   ): TelemetrySanitizedSummary | null {
