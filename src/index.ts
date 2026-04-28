@@ -72,6 +72,20 @@ interface OracleReporterConfig {
   telemetryInterval: number;
   /** AI analysis mode. @default "auto" */
   aiMode: "auto" | "rules" | "openai" | "claude" | "off";
+  /** Hard timeout for AI enrichment in milliseconds. @default 90000 */
+  aiTimeoutMs: number;
+}
+
+/** Default AI enrichment timeout (90 seconds). */
+const DEFAULT_AI_TIMEOUT_MS = 90_000;
+
+/** Promise that rejects after the given timeout. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${String(ms)}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 interface AIEnrichmentResult {
@@ -103,6 +117,8 @@ export default class PlaywrightOracleReporter implements Reporter {
   private aiAttempted = false;
   private aiProvider: AIProvider | null = null;
   private baseReportOpened = false;
+  private reportFinalized = false;
+  private onEndPromise: Promise<void> | null = null;
 
   private isDebugEnabled(): boolean {
     const logLevel = (getEnvVar("LOG_LEVEL") ?? "").toUpperCase();
@@ -139,6 +155,10 @@ export default class PlaywrightOracleReporter implements Reporter {
           : undefined) ??
         options.aiMode ??
         CONFIG_DEFAULTS.AI_MODE,
+      aiTimeoutMs:
+        PlaywrightOracleReporter.parseEnvInt("AI_TIMEOUT_MS") ??
+        options.aiTimeoutMs ??
+        DEFAULT_AI_TIMEOUT_MS,
     };
 
     this.runSummary = {
@@ -155,12 +175,15 @@ export default class PlaywrightOracleReporter implements Reporter {
     this.sampler = new TelemetrySampler(this.config.telemetryInterval);
     this.historyStore = new HistoryStore(this.config.historyDir);
 
+    // ── Graceful shutdown: finalize report on early termination ──
+    this.installSignalHandlers();
+
     if (this.isDebugEnabled()) {
       this.safeLog(
-        `[PW-AI] Reporter config: outputDir=${this.config.outputDir}, openReport=${String(this.config.openReport)}, aiMode=${this.config.aiMode}`,
+        `[PW-AI] Reporter config: outputDir=${this.config.outputDir}, openReport=${String(this.config.openReport)}, aiMode=${this.config.aiMode}, aiTimeoutMs=${String(this.config.aiTimeoutMs)}`,
       );
       this.safeLog(
-        `[PW-AI] Env: PW_ORACLE_OPEN_REPORT=${String(process.env.PW_ORACLE_OPEN_REPORT ?? "(unset)")}, CI=${String(process.env.CI ?? "(unset)")}`,
+        `[PW-AI] Env: PW_ORACLE_OPEN_REPORT=${String(process.env.PW_ORACLE_OPEN_REPORT ?? "(unset)")}, CI=${String(process.env.CI ?? "(unset)")}, ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY ? "set" : "(unset)"}`,
       );
     }
   }
@@ -216,6 +239,12 @@ export default class PlaywrightOracleReporter implements Reporter {
 
   /** Called after all tests complete.  Orchestrates report generation. */
   async onEnd(_result: FullResult): Promise<void> {
+    // Store the promise so signal handlers can await it
+    this.onEndPromise = this.onEndInner();
+    return this.onEndPromise;
+  }
+
+  private async onEndInner(): Promise<void> {
     try {
       this.finaliseRunSummary();
       const metrics = this.sampler.stop();
@@ -229,6 +258,9 @@ export default class PlaywrightOracleReporter implements Reporter {
 
       // ── Analysis & report ─────────────────────────────
       const aiResponse = await this.generateReport(metrics, patterns);
+
+      // ── Mark finalized BEFORE terminal output ─────────
+      this.reportFinalized = true;
 
       // ── Terminal summary ──────────────────────────────
       const reportPath = path.join(this.config.outputDir, "index.html");
@@ -249,7 +281,93 @@ export default class PlaywrightOracleReporter implements Reporter {
         `⚠️  Error generating report: ${error instanceof Error ? error.message : String(error)}`,
       );
       await this.generateFallbackReport(error);
+      this.reportFinalized = true;
     }
+  }
+
+  /**
+   * Install SIGTERM/SIGINT handlers that finalize the report
+   * if the process is killed before onEnd completes (e.g. global-teardown).
+   */
+  private installSignalHandlers(): void {
+    const handler = (signal: string) => {
+      this.safeLog(`\n⚡ Received ${signal} — finalizing report…`);
+
+      // If onEnd already ran and finalized, just exit
+      if (this.reportFinalized) {
+        process.exit(signal === "SIGTERM" ? 143 : 130);
+        return;
+      }
+
+      // If onEnd is in progress, wait for it (with a hard 5s cap)
+      if (this.onEndPromise) {
+        const forceTimer = setTimeout(() => process.exit(1), 5000);
+        this.onEndPromise
+          .catch(() => {})
+          .finally(() => {
+            clearTimeout(forceTimer);
+            process.exit(signal === "SIGTERM" ? 143 : 130);
+          });
+        return;
+      }
+
+      // onEnd never started — write whatever we have synchronously
+      try {
+        this.finaliseRunSummary();
+        this.sampler.stop();
+        this.ensureDir(this.config.outputDir);
+        this.ensureDir(path.join(this.config.outputDir, "data"));
+        fs.writeFileSync(
+          path.join(this.config.outputDir, "data", "run.json"),
+          JSON.stringify(this.runSummary, null, 2),
+          "utf-8",
+        );
+        fs.writeFileSync(
+          path.join(this.config.outputDir, "data", "tests.json"),
+          JSON.stringify(this.tests, null, 2),
+          "utf-8",
+        );
+        this.safeLog(
+          `📄 Emergency report data saved to: ${path.join(this.config.outputDir, "data")}`,
+        );
+      } catch {
+        // Best-effort only
+      }
+      process.exit(signal === "SIGTERM" ? 143 : 130);
+    };
+
+    process.once("SIGTERM", () => handler("SIGTERM"));
+    process.once("SIGINT", () => handler("SIGINT"));
+
+    // Safety net: if process.exit() is called externally (e.g. global-teardown),
+    // log a warning so the user knows the reporter was interrupted.
+    process.once("exit", (code) => {
+      if (!this.reportFinalized) {
+        try {
+          // Synchronous writes only — async is not allowed in 'exit' handler
+          this.ensureDir(this.config.outputDir);
+          this.ensureDir(path.join(this.config.outputDir, "data"));
+          const exitDiag = {
+            warning: "Process exited before reporter finished (likely global-teardown force-exit)",
+            exitCode: code,
+            reportFinalized: this.reportFinalized,
+            timestamp: new Date().toISOString(),
+            hint: "Increase FORCE_EXIT_DELAY_MS or remove process.exit() from global-teardown",
+          };
+          fs.writeFileSync(
+            path.join(this.config.outputDir, "data", "exit-diagnostic.json"),
+            JSON.stringify(exitDiag, null, 2),
+            "utf-8",
+          );
+          console.log(
+            `\n⚠️  [PW-AI] Process exited (code ${String(code)}) before AI enrichment finished.`,
+          );
+          console.log(`   Fix: increase global-teardown timeout or set FORCE_EXIT_DELAY_MS=120000`);
+        } catch {
+          // Best-effort
+        }
+      }
+    });
   }
 
   // ═══════════════════════════════════════════════════════
@@ -339,22 +457,49 @@ export default class PlaywrightOracleReporter implements Reporter {
 
     this.safeLog(`📄 Base report generated: ${path.join(this.config.outputDir, "index.html")}`);
 
-    if (this.config.openReport && !this.baseReportOpened) {
-      this.baseReportOpened = true;
-      const reportToOpen = path.resolve(path.join(this.config.outputDir, "index.html"));
-      if (this.isDebugEnabled()) {
-        this.safeLog(`[PW-AI] Auto-open enabled. Opening: ${reportToOpen}`);
-      }
-      this.openReportInBrowser(reportToOpen);
+    // Write a debug log file for post-mortem diagnostics
+    if (this.isDebugEnabled()) {
+      const debugInfo = {
+        timestamp: new Date().toISOString(),
+        version: "1.1.5",
+        config: { aiMode: this.config.aiMode, aiTimeoutMs: this.config.aiTimeoutMs },
+        envKeys: {
+          ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY
+            ? `set (${String(process.env.ANTHROPIC_API_KEY.length)} chars)`
+            : "NOT SET",
+          OPENAI_API_KEY: process.env.OPENAI_API_KEY
+            ? `set (${String(process.env.OPENAI_API_KEY.length)} chars)`
+            : "NOT SET",
+        },
+        runSummary: { failed: this.runSummary.failed, flaky: this.runSummary.flaky },
+      };
+      fs.writeFileSync(
+        path.join(this.config.outputDir, "data", "debug.json"),
+        JSON.stringify(debugInfo, null, 2),
+        "utf-8",
+      );
     }
 
     // ── AI enrichment (optional; done after base report so report is always available) ─────
-    const { provider: aiProvider, response: aiResponse } = await this.tryAIEnrichment(
-      metrics,
-      patterns,
-    );
+    let aiProvider: AIProvider | null = null;
+    let aiResponse: AIResponse | null = null;
+
+    try {
+      this.safeLog(`🧠 Starting AI enrichment (timeout: ${String(this.config.aiTimeoutMs)}ms)…`);
+      const enrichmentResult = await withTimeout(
+        this.tryAIEnrichment(metrics, patterns),
+        this.config.aiTimeoutMs,
+        "AI enrichment",
+      );
+      aiProvider = enrichmentResult.provider;
+      aiResponse = enrichmentResult.response;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.safeLog(`⚠️  AI enrichment aborted: ${msg}`);
+    }
 
     if (!aiResponse) {
+      this.safeLog("📄 Report ready (without AI enrichment).");
       return null;
     }
 
@@ -425,6 +570,7 @@ export default class PlaywrightOracleReporter implements Reporter {
     this.aiProvider = null;
 
     if (this.config.aiMode === "off" || this.config.aiMode === "rules") {
+      this.safeLog(`🧠 AI enrichment skipped (aiMode=${this.config.aiMode}).`);
       return { provider: null, response: null };
     }
 
@@ -433,14 +579,24 @@ export default class PlaywrightOracleReporter implements Reporter {
       return { provider: null, response: null };
     }
 
-    for (const provider of this.resolveAIProviders()) {
+    const providers = this.resolveAIProviders();
+    if (this.isDebugEnabled()) {
+      this.safeLog(`[PW-AI] Resolved AI providers: ${JSON.stringify(providers)}`);
+    }
+
+    for (const provider of providers) {
       const apiKey = this.getProviderApiKey(provider);
+      if (this.isDebugEnabled()) {
+        const envVar = this.getProviderKeyEnvVar(provider);
+        const rawVal = process.env[envVar];
+        this.safeLog(
+          `[PW-AI] ${provider}: env ${envVar}=${rawVal ? `set (${String(rawVal.length)} chars)` : "(undefined)"}`,
+        );
+      }
       if (!apiKey) {
-        if (this.config.aiMode === provider) {
-          this.safeLog(
-            `🧠 ${this.getProviderLabel(provider)} analysis skipped because ${this.getProviderKeyEnvVar(provider)} is not set.`,
-          );
-        }
+        this.safeLog(
+          `🧠 ${this.getProviderLabel(provider)} skipped — ${this.getProviderKeyEnvVar(provider)} is not set.`,
+        );
         continue;
       }
 
@@ -466,6 +622,7 @@ export default class PlaywrightOracleReporter implements Reporter {
             });
 
       if (response) {
+        this.safeLog(`✅ ${this.getProviderLabel(provider)} analysis complete.`);
         return { provider, response };
       }
 
