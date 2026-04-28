@@ -614,7 +614,7 @@ export default class PlaywrightOracleReporter implements Reporter {
       } else if (process.platform === "linux") {
         execSync(`xdg-open "${reportPath}"`, { stdio: "ignore" });
       } else if (process.platform === "win32") {
-        execSync(`start "" "${reportPath}"`, { stdio: "ignore", shell: true });
+        execSync(`start "" "${reportPath}"`, { stdio: "ignore" });
       }
     } catch {
       // Opening browser is a nice-to-have, not critical
