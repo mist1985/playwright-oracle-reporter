@@ -102,6 +102,7 @@ export default class PlaywrightOracleReporter implements Reporter {
   private currentTestIndex = 0;
   private aiAttempted = false;
   private aiProvider: AIProvider | null = null;
+  private baseReportOpened = false;
 
   // ── Delegates ──────────────────────────────────────────
   private readonly htmlGenerator = new HtmlReportGenerator();
@@ -267,13 +268,7 @@ export default class PlaywrightOracleReporter implements Reporter {
     const telemetrySummary = TelemetrySummarizer.summarize(metrics);
     const correlations = CorrelationEngine.correlate(testLites, metrics);
 
-    // ── AI enrichment (optional) ───────────────────────
-    const { provider: aiProvider, response: aiResponse } = await this.tryAIEnrichment(
-      metrics,
-      patterns,
-    );
-
-    // ── Persist JSON data ───────────────────────────────
+    // ── Persist JSON data (base report, no AI enrichment yet) ─────────────
     await Promise.all([
       this.writeJSON("data/run.json", this.runSummary),
       this.writeJSON("data/tests.json", this.tests),
@@ -281,14 +276,6 @@ export default class PlaywrightOracleReporter implements Reporter {
       this.writeJSON("data/ai.json", analysis),
       this.writeJSON("data/patterns.json", patterns),
       this.writeJSON("data/telemetry.summary.json", telemetrySummary),
-      ...(aiResponse
-        ? [
-            this.writeJSON("data/ai.enrichment.json", {
-              provider: aiProvider,
-              response: aiResponse,
-            }),
-          ]
-        : []),
     ]);
 
     await this.writeJSON("data/ai.final.json", {
@@ -300,12 +287,12 @@ export default class PlaywrightOracleReporter implements Reporter {
       telemetrySummary,
       runFindings: correlations,
       enrichment: {
-        provider: aiProvider,
-        enabled: !!aiResponse,
-        success: !!aiResponse,
-        pmSummary: aiResponse?.pm_summary ?? null,
-        hypotheses: aiResponse?.root_cause_hypotheses.map((h) => h.hypothesis) ?? [],
-        flakyTestsReview: aiResponse?.algorithmic_findings_review ?? [],
+        provider: null,
+        enabled: false,
+        success: false,
+        pmSummary: null,
+        hypotheses: [],
+        flakyTestsReview: [],
       },
     });
 
@@ -321,32 +308,86 @@ export default class PlaywrightOracleReporter implements Reporter {
       patterns,
       telemetrySummary,
       correlations,
-      aiResponse: aiResponse ?? null,
+      aiResponse: null,
       config: {
         outputDir: this.config.outputDir,
         telemetryInterval: this.config.telemetryInterval,
         aiMode: this.config.aiMode,
         openaiConfigured: !!process.env.OPENAI_API_KEY,
         claudeConfigured: !!process.env.ANTHROPIC_API_KEY,
-        aiAttempted: this.aiAttempted,
-        aiProvider,
+        aiAttempted: false,
+        aiProvider: null,
       },
     };
 
     const html = await this.htmlGenerator.generate(context);
     await fs.promises.writeFile(path.join(this.config.outputDir, "index.html"), html, "utf-8");
 
-    // ── Markdown report ─────────────────────────────────
-    if (aiResponse) {
-      const md = await this.markdownGenerator.generate({
-        ...context,
-        aiResponse,
-      });
-      await fs.promises.writeFile(path.join(this.config.outputDir, "ai-analysis.md"), md, "utf-8");
-      this.safeLog(
-        `✨ AI Analysis saved to: ${path.join(this.config.outputDir, "ai-analysis.md")}`,
-      );
+    this.safeLog(`📄 Base report generated: ${path.join(this.config.outputDir, "index.html")}`);
+
+    if (this.config.openReport && !this.baseReportOpened) {
+      this.baseReportOpened = true;
+      this.openReportInBrowser(path.resolve(path.join(this.config.outputDir, "index.html")));
     }
+
+    // ── AI enrichment (optional; done after base report so report is always available) ─────
+    const { provider: aiProvider, response: aiResponse } = await this.tryAIEnrichment(
+      metrics,
+      patterns,
+    );
+
+    if (!aiResponse) {
+      return null;
+    }
+
+    // Persist enrichment JSON
+    await this.writeJSON("data/ai.enrichment.json", {
+      provider: aiProvider,
+      response: aiResponse,
+    });
+
+    // Update final composite JSON with enrichment
+    await this.writeJSON("data/ai.final.json", {
+      schemaVersion: SCHEMA_VERSION,
+      meta: { mode: this.config.aiMode, generatedAt: new Date().toISOString() },
+      pmSummary: analysis.pmSummary,
+      tests: analysis.tests,
+      patterns,
+      telemetrySummary,
+      runFindings: correlations,
+      enrichment: {
+        provider: aiProvider,
+        enabled: true,
+        success: true,
+        pmSummary: aiResponse.pm_summary ?? null,
+        hypotheses: aiResponse.root_cause_hypotheses.map((h) => h.hypothesis) ?? [],
+        flakyTestsReview: aiResponse.algorithmic_findings_review ?? [],
+      },
+    });
+
+    // Regenerate HTML so AI appears in the report
+    const htmlWithAI = await this.htmlGenerator.generate({
+      ...context,
+      aiResponse,
+      config: {
+        ...context.config,
+        aiAttempted: this.aiAttempted,
+        aiProvider,
+      },
+    });
+    await fs.promises.writeFile(
+      path.join(this.config.outputDir, "index.html"),
+      htmlWithAI,
+      "utf-8",
+    );
+
+    // ── Markdown report ─────────────────────────────────
+    const md = await this.markdownGenerator.generate({
+      ...context,
+      aiResponse,
+    });
+    await fs.promises.writeFile(path.join(this.config.outputDir, "ai-analysis.md"), md, "utf-8");
+    this.safeLog(`✨ AI Analysis saved to: ${path.join(this.config.outputDir, "ai-analysis.md")}`);
 
     return aiResponse;
   }

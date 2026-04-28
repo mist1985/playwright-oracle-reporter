@@ -5,6 +5,7 @@
 import { CircuitBreaker, RateLimiter } from "../common/client-guards";
 import { getAnalysisSystemPrompt } from "../prompts";
 import type { ClaudeConfig } from "./types";
+import { getEnvVar } from "../../common/constants";
 
 interface ClaudeContentBlock {
   type?: string;
@@ -160,6 +161,10 @@ export class ClaudeClient {
   private async executeRequest(payload: unknown): Promise<unknown> {
     this.requestCount++;
 
+    const logLevel = (getEnvVar("LOG_LEVEL") ?? "").toUpperCase();
+    const debug = logLevel === "DEBUG" || process.env.PW_AI_DEBUG === "true";
+    const startedAt = Date.now();
+
     const body = {
       model: this.config.model,
       max_tokens: this.config.maxTokens,
@@ -173,6 +178,20 @@ export class ClaudeClient {
     let attempts = 0;
     while (attempts <= this.config.retries) {
       try {
+        if (debug) {
+          const size = (() => {
+            try {
+              return JSON.stringify(payload).length;
+            } catch {
+              return -1;
+            }
+          })();
+          // eslint-disable-next-line no-console
+          console.log(
+            `[PW-AI] Claude request attempt ${String(attempts + 1)}/${String(this.config.retries + 1)} (model=${this.config.model}, payloadChars=${String(size)}, timeoutMs=${String(this.config.timeoutMs)})`,
+          );
+        }
+
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
@@ -188,6 +207,13 @@ export class ClaudeClient {
         });
 
         clearTimeout(id);
+
+        if (debug) {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[PW-AI] Claude response status=${String(res.status)} elapsedMs=${String(Date.now() - startedAt)}`,
+          );
+        }
 
         if (!res.ok) {
           const errorBody = await res.text().catch(() => "Unable to read error");

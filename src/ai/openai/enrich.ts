@@ -52,7 +52,8 @@ export class OpenAIEnricher {
       ),
       retries: parseInt(getEnvVar("OPENAI_RETRIES") ?? String(CONFIG_DEFAULTS.OPENAI_RETRIES), 10),
     };
-    this.debug = process.env.PW_AI_DEBUG === "true";
+    const logLevel = (getEnvVar("LOG_LEVEL") ?? "").toUpperCase();
+    this.debug = logLevel === "DEBUG" || process.env.PW_AI_DEBUG === "true";
   }
 
   /**

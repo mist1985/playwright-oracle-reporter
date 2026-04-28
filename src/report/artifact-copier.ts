@@ -27,11 +27,17 @@ export class ArtifactCopier implements IArtifactCopier {
     const artifactsDir = path.join(outputDir, "artifacts");
     this.ensureDir(artifactsDir);
 
+    let copied = 0;
+    let missing = 0;
+
     for (const test of tests) {
       if (test.status !== "failed" && test.status !== "timedOut") continue;
 
       for (const attachment of test.attachments) {
-        if (!attachment.path || !fs.existsSync(attachment.path)) continue;
+        if (!attachment.path || !fs.existsSync(attachment.path)) {
+          missing++;
+          continue;
+        }
 
         try {
           const fileName = path.basename(attachment.path);
@@ -39,6 +45,7 @@ export class ArtifactCopier implements IArtifactCopier {
           fs.copyFileSync(attachment.path, destPath);
           // Update attachment path to relative for the report
           attachment.path = `artifacts/${test.testId}-${fileName}`;
+          copied++;
         } catch (error: unknown) {
           logger.warn("Could not copy artifact", {
             path: attachment.path,
@@ -47,6 +54,8 @@ export class ArtifactCopier implements IArtifactCopier {
         }
       }
     }
+
+    logger.debug("Artifact copy complete", { outputDir, artifactsDir, copied, missing });
   }
 
   private ensureDir(dir: string): void {

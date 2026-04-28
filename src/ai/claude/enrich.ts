@@ -40,7 +40,8 @@ export class ClaudeEnricher {
       retries: parseInt(getEnvVar("CLAUDE_RETRIES") ?? String(CONFIG_DEFAULTS.CLAUDE_RETRIES), 10),
       anthropicVersion: "2023-06-01",
     };
-    this.debug = process.env.PW_AI_DEBUG === "true";
+    const logLevel = (getEnvVar("LOG_LEVEL") ?? "").toUpperCase();
+    this.debug = logLevel === "DEBUG" || process.env.PW_AI_DEBUG === "true";
   }
 
   async enrich(context: EnrichmentContext): Promise<ClaudeResponse | null> {
@@ -75,6 +76,15 @@ export class ClaudeEnricher {
           context.patterns,
         );
         const payloadStr = JSON.stringify(singleTestPayload);
+
+        if (this.debug) {
+          console.log(
+            `[PW-AI] Claude payload size=${String(payloadStr.length)} chars (limit=${String(this.config.maxInputChars)}), model=${this.config.model}, maxTokens=${String(this.config.maxTokens)}, timeoutMs=${String(this.config.timeoutMs)}`,
+          );
+          console.log(
+            "[PW-AI] Note: attachments (trace.zip/screenshots) are NOT uploaded; only sanitized error text + metadata is sent.",
+          );
+        }
 
         if (payloadStr.length > this.config.maxInputChars) {
           if (this.debug) {
