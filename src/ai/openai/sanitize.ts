@@ -169,7 +169,7 @@ export class PayloadSanitizer {
           failed: run.failed,
           flaky: run.flaky,
         },
-        testNumber: `${run.passed + run.failed} of ${run.totalTests}`,
+        testNumber: `${String(run.passed + run.failed)} of ${String(run.totalTests)}`,
       },
       test: {
         testId: test.testId,
@@ -222,9 +222,9 @@ export class PayloadSanitizer {
 
     return {
       samples: metrics.length,
-      cpu_max_load1: maxCpu.toFixed(2),
-      cpu_avg_load1: avgLoad.toFixed(2),
-      mem_max_rss_mb: maxRss.toFixed(0),
+      cpu_max_load1: String(maxCpu.toFixed(2)),
+      cpu_avg_load1: String(avgLoad.toFixed(2)),
+      mem_max_rss_mb: String(maxRss.toFixed(0)),
       pressure_detected: hasPressure,
       cpu_steal_detected: hasSteal,
     };

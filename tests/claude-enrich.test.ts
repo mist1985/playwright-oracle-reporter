@@ -126,7 +126,7 @@ describe("ClaudeEnricher", () => {
     expect(body.tools[0].name).toBe("record_analysis");
 
     const payload = JSON.parse(body.messages[0].content);
-    expect(payload.tests[0].file).toBe("~/project/tests/dashboard.spec.ts");
+    expect(payload.test.file).toBe("~/project/tests/dashboard.spec.ts");
   });
 
   it("returns null when Claude does not return a usable tool payload", async () => {

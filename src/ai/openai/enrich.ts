@@ -74,7 +74,7 @@ export class OpenAIEnricher {
       }
 
       if (this.debug) {
-        console.log(`[PW-AI] Analyzing ${failedTests.length} failed tests individually`);
+        console.log(`[PW-AI] Analyzing ${String(failedTests.length)} failed tests individually`);
       }
 
       // Analyze each test individually
@@ -82,7 +82,9 @@ export class OpenAIEnricher {
       for (let i = 0; i < failedTests.length; i++) {
         const test = failedTests[i];
         if (this.debug) {
-          console.log(`[PW-AI] Analyzing test ${i + 1}/${failedTests.length}: ${test.title}`);
+          console.log(
+            `[PW-AI] Analyzing test ${String(i + 1)}/${String(failedTests.length)}: ${test.title}`,
+          );
         }
 
         const singleTestPayload = PayloadSanitizer.sanitizeSingleTest(
@@ -96,7 +98,7 @@ export class OpenAIEnricher {
         if (payloadStr.length > this.config.maxInputChars) {
           if (this.debug) {
             console.warn(
-              `[PW-AI] Single test payload too large (${payloadStr.length} chars), skipping: ${test.title}`,
+              `[PW-AI] Single test payload too large (${String(payloadStr.length)} chars), skipping: ${test.title}`,
             );
           }
           continue;
@@ -117,9 +119,7 @@ export class OpenAIEnricher {
         const validated = SchemaValidator.validate(rawResult);
         if (validated) {
           responses.push(validated);
-          if (this.debug) {
-            console.log(`[PW-AI] ✓ Analyzed: ${test.title}`);
-          }
+          console.log(`[PW-AI] ✓ Analyzed: ${test.title}`);
         }
       }
 
@@ -130,17 +130,13 @@ export class OpenAIEnricher {
       // Aggregate responses
       const aggregated = this.aggregateResponses(responses);
 
-      if (this.debug) {
-        console.log(
-          `[PW-AI] Successfully analyzed ${responses.length}/${failedTests.length} failed tests`,
-        );
-      }
+      console.log(
+        `[PW-AI] Successfully analyzed ${String(responses.length)}/${String(failedTests.length)} failed tests`,
+      );
 
       return aggregated;
     } catch (e) {
-      if (this.debug) {
-        console.error("[PW-AI] Error during enrichment:", e);
-      }
+      console.error("[PW-AI] Error during enrichment:", e);
       return null;
     }
   }
@@ -170,21 +166,20 @@ export class OpenAIEnricher {
         : "Multiple errors detected across test suite";
 
     // Determine most common triage verdict
-    const verdictCounts = responses.reduce(
-      (acc, r) => {
-        const verdict = r.triage_verdict || "unknown";
-        acc[verdict] = (acc[verdict] || 0) + 1;
-        return acc;
-      },
-      {} as Record<string, number>,
-    );
-    const triageVerdict = (Object.entries(verdictCounts).sort(([, a], [, b]) => b - a)[0]?.[0] ||
+    const verdictCounts = responses.reduce<Record<string, number>>((acc, r) => {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      const verdict = r.triage_verdict ?? "unknown";
+      acc[verdict] = (acc[verdict] ?? 0) + 1;
+      return acc;
+    }, {});
+    const triageVerdict = (Object.entries(verdictCounts).sort(([, a], [, b]) => b - a)[0]?.[0] ??
       "unknown") as "infra" | "app" | "test" | "unknown";
 
     // Aggregate top findings (deduplicate by title)
     const findingsMap = new Map<string, (typeof responses)[0]["top_findings"][0]>();
     for (const response of responses) {
-      for (const finding of response.top_findings || []) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      for (const finding of response.top_findings ?? []) {
         const key = finding.title;
         if (!findingsMap.has(key)) {
           findingsMap.set(key, finding);
@@ -196,7 +191,8 @@ export class OpenAIEnricher {
     // Aggregate root cause hypotheses (deduplicate by hypothesis text)
     const hypothesesMap = new Map<string, (typeof responses)[0]["root_cause_hypotheses"][0]>();
     for (const response of responses) {
-      for (const hyp of response.root_cause_hypotheses || []) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      for (const hyp of response.root_cause_hypotheses ?? []) {
         const key = hyp.hypothesis;
         if (!hypothesesMap.has(key)) {
           hypothesesMap.set(key, hyp);
@@ -208,7 +204,8 @@ export class OpenAIEnricher {
     // Aggregate recommended fixes (deduplicate by area + steps)
     const fixesMap = new Map<string, (typeof responses)[0]["recommended_fixes"][0]>();
     for (const response of responses) {
-      for (const fix of response.recommended_fixes || []) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      for (const fix of response.recommended_fixes ?? []) {
         const key = `${fix.area}:${fix.steps.join(",")}`;
         if (!fixesMap.has(key)) {
           fixesMap.set(key, fix);
@@ -228,8 +225,9 @@ export class OpenAIEnricher {
       .join(" | ");
 
     // Combine algorithmic findings review
+
     const algorithmicFindingsReview = responses
-      .flatMap((r) => r.algorithmic_findings_review || [])
+      .flatMap((r) => r.algorithmic_findings_review ?? [])
       .slice(0, 20);
 
     return {
