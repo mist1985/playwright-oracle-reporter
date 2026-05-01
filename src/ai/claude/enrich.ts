@@ -67,12 +67,16 @@ export class ClaudeEnricher {
       const startedAt = Date.now();
       // Soft deadline: stop scheduling new work once we are close to the configured AI timeout.
       // (The outer layer may still enforce a hard timeout, but this prevents wasted work.)
-      const overallBudgetMs = Math.max(5_000, parseInt(getEnvVar("AI_TIMEOUT_MS") ?? "0", 10) || 0);
-      const softDeadlineMs = overallBudgetMs > 0 ? startedAt + overallBudgetMs - 2_000 : null;
+      const overallBudgetMsRaw = parseInt(getEnvVar("AI_TIMEOUT_MS") ?? "", 10);
+      const overallBudgetMs = Number.isFinite(overallBudgetMsRaw) ? overallBudgetMsRaw : 0;
+      const softDeadlineMs =
+        overallBudgetMs > 0
+          ? startedAt + Math.max(0, overallBudgetMs - 2_000)
+          : Number.POSITIVE_INFINITY;
 
       if (this.debug) {
         console.log(`[PW-AI] Claude concurrency=${String(concurrency)}`);
-        if (softDeadlineMs) {
+        if (Number.isFinite(softDeadlineMs)) {
           console.log(
             `[PW-AI] Claude enrichment soft-deadline enabled (budgetMs=${String(overallBudgetMs)})`,
           );
@@ -83,11 +87,10 @@ export class ClaudeEnricher {
       let nextIndex = 0;
 
       const worker = async (): Promise<void> => {
-        while (true) {
+        while (nextIndex < failedTests.length) {
           const i = nextIndex++;
-          if (i >= failedTests.length) return;
 
-          if (softDeadlineMs && Date.now() >= softDeadlineMs) {
+          if (Date.now() >= softDeadlineMs) {
             if (this.debug) {
               console.warn(
                 `[PW-AI] Reached soft deadline; stopping new test analyses at ${String(i)}/${String(failedTests.length)}`,
