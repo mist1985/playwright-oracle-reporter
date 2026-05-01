@@ -151,6 +151,26 @@ jobs:
 - Give each shard a unique output directory if you shard Playwright across jobs
 - Keep `PW_ORACLE_OPEN_REPORT=false` in CI unless you explicitly want browser-launch behavior
 
+If you enable Claude enrichment in CI, keep concurrency low and (optionally) set an overall AI budget:
+
+```yaml
+- name: Run Playwright with Oracle Reporter (Claude)
+  run: npx playwright test
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    PW_ORACLE_AI_MODE: claude
+    PW_ORACLE_OPEN_REPORT: "false"
+
+    # Recommended: keep parallel Claude requests conservative in CI.
+    PW_ORACLE_CLAUDE_CONCURRENCY: "2"
+
+    # Per-request timeout (defaults to 30000ms).
+    PW_ORACLE_CLAUDE_TIMEOUT_MS: "30000"
+
+    # Optional overall budget for enrichment. If unset, the reporter auto-scales it (capped).
+    PW_ORACLE_AI_TIMEOUT_MS: "240000"
+```
+
 ## Configuration
 
 Reporter options:
@@ -202,13 +222,19 @@ Supported environment variables:
 - `PW_ORACLE_RUN_LABEL`
 - `PW_ORACLE_TELEMETRY_INTERVAL`
 - `PW_ORACLE_AI_MODE`
+- `PW_ORACLE_AI_TIMEOUT_MS` (overall AI enrichment timeout)
 - `PW_ORACLE_LOG_LEVEL`
 - `PW_ORACLE_OPENAI_MODEL`
 - `PW_ORACLE_OPENAI_MAX_TOKENS`
 - `PW_ORACLE_OPENAI_TIMEOUT_MS`
+- `PW_ORACLE_OPENAI_RETRIES`
+- `PW_ORACLE_OPENAI_MAX_INPUT_CHARS`
 - `PW_ORACLE_CLAUDE_MODEL`
 - `PW_ORACLE_CLAUDE_MAX_TOKENS`
 - `PW_ORACLE_CLAUDE_TIMEOUT_MS`
+- `PW_ORACLE_CLAUDE_RETRIES`
+- `PW_ORACLE_CLAUDE_MAX_INPUT_CHARS`
+- `PW_ORACLE_CLAUDE_CONCURRENCY`
 
 Defaults:
 
@@ -217,6 +243,14 @@ Defaults:
 - Auto-open report: `true` locally, `false` in CI
 - Telemetry interval: `3`
 - AI mode: `auto`
+
+Notes:
+
+- `PW_ORACLE_*_TIMEOUT_MS` values are per-request timeouts for the chosen provider.
+- `PW_ORACLE_AI_TIMEOUT_MS` is the overall budget for AI enrichment after the base report is generated.
+  - If you don't set it, the reporter auto-adjusts it based on the number of failed tests (capped to a few minutes).
+  - If you do set it, that value is treated as a hard limit.
+- `PW_ORACLE_CLAUDE_CONCURRENCY` controls how many failed tests are analyzed in parallel (default: `3`). In CI, `2`–`3` is usually the safest range.
 
 ## CLI
 

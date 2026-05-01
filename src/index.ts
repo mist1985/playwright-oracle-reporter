@@ -43,7 +43,7 @@ import {
   type HistoryRecord,
   SCHEMA_VERSION,
 } from "./types";
-import { CONFIG_DEFAULTS, getEnvVar } from "./common/constants";
+import { CONFIG_DEFAULTS, ENV_VARS, getEnvVar } from "./common/constants";
 import { loadDotenvIfAvailable } from "./common/env";
 import { normalizeSupportedPlatform, shouldAutoOpenReport } from "./common/platform";
 
@@ -79,6 +79,9 @@ interface OracleReporterConfig {
 /** Default AI enrichment timeout (90 seconds). */
 const DEFAULT_AI_TIMEOUT_MS = 90_000;
 
+/** Maximum auto AI timeout when not explicitly configured (5 minutes). */
+const MAX_AUTO_AI_TIMEOUT_MS = 300_000;
+
 /** Promise that rejects after the given timeout. */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: NodeJS.Timeout;
@@ -107,6 +110,7 @@ interface AIEnrichmentResult {
 export default class PlaywrightOracleReporter implements Reporter {
   // ── Configuration & state ──────────────────────────────
   private readonly config: OracleReporterConfig;
+  private readonly aiTimeoutExplicit: boolean;
   private startTime = 0;
   private readonly tests: TestSummary[] = [];
   private runSummary: RunSummary;
@@ -140,6 +144,13 @@ export default class PlaywrightOracleReporter implements Reporter {
   constructor(options: Partial<OracleReporterConfig> = {}) {
     loadDotenvIfAvailable();
 
+    const envAiTimeoutMs = PlaywrightOracleReporter.parseEnvInt("AI_TIMEOUT_MS");
+    this.aiTimeoutExplicit = envAiTimeoutMs !== undefined;
+    const optionAiTimeoutMs = options.aiTimeoutMs;
+    if (optionAiTimeoutMs !== undefined) {
+      this.aiTimeoutExplicit = true;
+    }
+
     this.config = {
       outputDir: getEnvVar("OUTPUT_DIR") ?? options.outputDir ?? CONFIG_DEFAULTS.OUTPUT_DIR,
       historyDir: getEnvVar("HISTORY_DIR") ?? options.historyDir ?? CONFIG_DEFAULTS.HISTORY_DIR,
@@ -155,10 +166,7 @@ export default class PlaywrightOracleReporter implements Reporter {
           : undefined) ??
         options.aiMode ??
         CONFIG_DEFAULTS.AI_MODE,
-      aiTimeoutMs:
-        PlaywrightOracleReporter.parseEnvInt("AI_TIMEOUT_MS") ??
-        options.aiTimeoutMs ??
-        DEFAULT_AI_TIMEOUT_MS,
+      aiTimeoutMs: envAiTimeoutMs ?? optionAiTimeoutMs ?? DEFAULT_AI_TIMEOUT_MS,
     };
 
     this.runSummary = {
@@ -186,6 +194,25 @@ export default class PlaywrightOracleReporter implements Reporter {
         `[PW-AI] Env: PW_ORACLE_OPEN_REPORT=${String(process.env.PW_ORACLE_OPEN_REPORT ?? "(unset)")}, CI=${String(process.env.CI ?? "(unset)")}, ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY ? "set" : "(unset)"}`,
       );
     }
+  }
+
+  private computeAutoAiTimeoutMs(failedTestsCount: number): number {
+    // Goal: keep UX bounded but avoid premature aborts when many failures exist.
+    // We estimate time as "waves" of requests based on concurrency.
+    const concurrency = Math.max(1, parseInt(getEnvVar("CLAUDE_CONCURRENCY") ?? "3", 10) || 3);
+
+    // Per-test budget: per-request timeout with a small overhead.
+    // (Retries/backoffs are handled internally; if they happen, we may still hit the cap.)
+    const perRequestTimeoutMs =
+      PlaywrightOracleReporter.parseEnvInt("CLAUDE_TIMEOUT_MS") ??
+      CONFIG_DEFAULTS.CLAUDE_TIMEOUT_MS;
+
+    const waves = Math.max(1, Math.ceil(failedTestsCount / concurrency));
+    const baseOverheadMs = 15_000;
+    const perWaveBudgetMs = Math.min(45_000, Math.round(perRequestTimeoutMs * 1.15));
+
+    const estimate = baseOverheadMs + waves * perWaveBudgetMs;
+    return Math.min(MAX_AUTO_AI_TIMEOUT_MS, Math.max(DEFAULT_AI_TIMEOUT_MS, estimate));
   }
 
   // ═══════════════════════════════════════════════════════
@@ -485,10 +512,26 @@ export default class PlaywrightOracleReporter implements Reporter {
     let aiResponse: AIResponse | null = null;
 
     try {
-      this.safeLog(`🧠 Starting AI enrichment (timeout: ${String(this.config.aiTimeoutMs)}ms)…`);
+      const failedTestsCount = this.tests.filter(
+        (t) => t.status === "failed" || t.status === "timedOut",
+      ).length;
+      const effectiveAiTimeoutMs = this.aiTimeoutExplicit
+        ? this.config.aiTimeoutMs
+        : this.computeAutoAiTimeoutMs(failedTestsCount);
+
+      // Propagate to env so enrichers can enforce a soft deadline and preserve partial progress.
+      process.env[ENV_VARS.AI_TIMEOUT_MS] = String(effectiveAiTimeoutMs);
+
+      if (this.isDebugEnabled() && !this.aiTimeoutExplicit) {
+        this.safeLog(
+          `[PW-AI] Auto AI timeout selected: failedTests=${String(failedTestsCount)} => aiTimeoutMs=${String(effectiveAiTimeoutMs)}`,
+        );
+      }
+
+      this.safeLog(`🧠 Starting AI enrichment (timeout: ${String(effectiveAiTimeoutMs)}ms)…`);
       const enrichmentResult = await withTimeout(
         this.tryAIEnrichment(metrics, patterns),
-        this.config.aiTimeoutMs,
+        effectiveAiTimeoutMs,
         "AI enrichment",
       );
       aiProvider = enrichmentResult.provider;

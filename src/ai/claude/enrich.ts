@@ -59,58 +59,96 @@ export class ClaudeEnricher {
         console.log(`[PW-AI] Analyzing ${String(failedTests.length)} failed tests individually`);
       }
 
-      // Analyze each test individually
-      const responses: ClaudeResponse[] = [];
-      for (let i = 0; i < failedTests.length; i++) {
-        const test = failedTests[i];
-        if (this.debug) {
+      // Analyze each test individually, but with bounded concurrency and partial-progress preservation.
+      // Important: reuse a single client so rate limiting + circuit breaker are effective.
+      const client = new ClaudeClient(this.config);
+
+      const concurrency = Math.max(1, parseInt(getEnvVar("CLAUDE_CONCURRENCY") ?? "3", 10) || 3);
+      const startedAt = Date.now();
+      // Soft deadline: stop scheduling new work once we are close to the configured AI timeout.
+      // (The outer layer may still enforce a hard timeout, but this prevents wasted work.)
+      const overallBudgetMs = Math.max(5_000, parseInt(getEnvVar("AI_TIMEOUT_MS") ?? "0", 10) || 0);
+      const softDeadlineMs = overallBudgetMs > 0 ? startedAt + overallBudgetMs - 2_000 : null;
+
+      if (this.debug) {
+        console.log(`[PW-AI] Claude concurrency=${String(concurrency)}`);
+        if (softDeadlineMs) {
           console.log(
-            `[PW-AI] Analyzing test ${String(i + 1)}/${String(failedTests.length)}: ${test.title}`,
+            `[PW-AI] Claude enrichment soft-deadline enabled (budgetMs=${String(overallBudgetMs)})`,
           );
-        }
-
-        const singleTestPayload = PayloadSanitizer.sanitizeSingleTest(
-          test,
-          context.run,
-          context.telemetry,
-          context.patterns,
-        );
-        const payloadStr = JSON.stringify(singleTestPayload);
-
-        if (this.debug) {
-          console.log(
-            `[PW-AI] Claude payload size=${String(payloadStr.length)} chars (limit=${String(this.config.maxInputChars)}), model=${this.config.model}, maxTokens=${String(this.config.maxTokens)}, timeoutMs=${String(this.config.timeoutMs)}`,
-          );
-          console.log(
-            "[PW-AI] Note: attachments (trace.zip/screenshots) are NOT uploaded; only sanitized error text + metadata is sent.",
-          );
-        }
-
-        if (payloadStr.length > this.config.maxInputChars) {
-          if (this.debug) {
-            console.warn(
-              `[PW-AI] Single test payload too large (${String(payloadStr.length)} chars), skipping: ${test.title}`,
-            );
-          }
-          continue;
-        }
-
-        const client = new ClaudeClient(this.config);
-        const rawResult = await client.complete(singleTestPayload);
-
-        if (!rawResult) {
-          if (this.debug) {
-            console.warn(`[PW-AI] No response for test: ${test.title}`);
-          }
-          continue;
-        }
-
-        const validated = SchemaValidator.validate(rawResult);
-        if (validated) {
-          responses.push(validated);
-          console.log(`[PW-AI] ✓ Analyzed: ${test.title}`);
         }
       }
+
+      const responses: ClaudeResponse[] = [];
+      let nextIndex = 0;
+
+      const worker = async (): Promise<void> => {
+        while (true) {
+          const i = nextIndex++;
+          if (i >= failedTests.length) return;
+
+          if (softDeadlineMs && Date.now() >= softDeadlineMs) {
+            if (this.debug) {
+              console.warn(
+                `[PW-AI] Reached soft deadline; stopping new test analyses at ${String(i)}/${String(failedTests.length)}`,
+              );
+            }
+            return;
+          }
+
+          const test = failedTests[i];
+          if (this.debug) {
+            console.log(
+              `[PW-AI] Analyzing test ${String(i + 1)}/${String(failedTests.length)}: ${test.title}`,
+            );
+          }
+
+          const singleTestPayload = PayloadSanitizer.sanitizeSingleTest(
+            test,
+            context.run,
+            context.telemetry,
+            context.patterns,
+          );
+          const payloadStr = JSON.stringify(singleTestPayload);
+
+          if (this.debug) {
+            console.log(
+              `[PW-AI] Claude payload size=${String(payloadStr.length)} chars (limit=${String(this.config.maxInputChars)}), model=${this.config.model}, maxTokens=${String(this.config.maxTokens)}, timeoutMs=${String(this.config.timeoutMs)}`,
+            );
+            console.log(
+              "[PW-AI] Note: attachments (trace.zip/screenshots) are NOT uploaded; only sanitized error text + metadata is sent.",
+            );
+          }
+
+          if (payloadStr.length > this.config.maxInputChars) {
+            if (this.debug) {
+              console.warn(
+                `[PW-AI] Single test payload too large (${String(payloadStr.length)} chars), skipping: ${test.title}`,
+              );
+            }
+            continue;
+          }
+
+          const rawResult = await client.complete(singleTestPayload);
+          if (!rawResult) {
+            if (this.debug) {
+              console.warn(`[PW-AI] No response for test: ${test.title}`);
+            }
+            continue;
+          }
+
+          const validated = SchemaValidator.validate(rawResult);
+          if (validated) {
+            responses.push(validated);
+            console.log(`[PW-AI] ✓ Analyzed: ${test.title}`);
+          }
+        }
+      };
+
+      const workers = Array.from({ length: Math.min(concurrency, failedTests.length) }, () =>
+        worker(),
+      );
+      await Promise.all(workers);
 
       if (responses.length === 0) {
         return null;
