@@ -29,6 +29,10 @@ export class OpenAIEnricher {
   private config: OpenAIConfig;
   private debug: boolean = false;
 
+  // ── Partial-results state ─────────────────────────────
+  private partialResponses: OpenAIResponse[] = [];
+  private partialTotalTests = 0;
+
   /**
    * Initialize the OpenAI enricher
    *
@@ -57,6 +61,21 @@ export class OpenAIEnricher {
   }
 
   /**
+   * Retrieve partial results accumulated so far.
+   * Useful when the outer hard-timeout aborts `enrich()` mid-flight.
+   */
+  getPartialResults(): { response: OpenAIResponse | null; analyzedCount: number; totalCount: number } {
+    if (this.partialResponses.length === 0) {
+      return { response: null, analyzedCount: 0, totalCount: this.partialTotalTests };
+    }
+    return {
+      response: this.aggregateResponses(this.partialResponses),
+      analyzedCount: this.partialResponses.length,
+      totalCount: this.partialTotalTests,
+    };
+  }
+
+  /**
    * Enrich test analysis with AI-powered insights
    * Analyzes each failed test individually for better performance
    *
@@ -70,6 +89,9 @@ export class OpenAIEnricher {
         (t) => t.status === "failed" || t.status === "timedOut",
       );
 
+      this.partialTotalTests = failedTests.length;
+      this.partialResponses = [];
+
       if (failedTests.length === 0) {
         return null;
       }
@@ -79,7 +101,8 @@ export class OpenAIEnricher {
       }
 
       // Analyze each test individually
-      const responses: OpenAIResponse[] = [];
+      // `responses` aliases the instance array so partial results survive an external abort.
+      const responses = this.partialResponses;
       for (let i = 0; i < failedTests.length; i++) {
         const test = failedTests[i];
         if (this.debug) {

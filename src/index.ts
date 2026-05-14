@@ -79,8 +79,8 @@ interface OracleReporterConfig {
 /** Default AI enrichment timeout (90 seconds). */
 const DEFAULT_AI_TIMEOUT_MS = 90_000;
 
-/** Maximum auto AI timeout when not explicitly configured (5 minutes). */
-const MAX_AUTO_AI_TIMEOUT_MS = 300_000;
+/** Maximum auto AI timeout when not explicitly configured (10 minutes). */
+const MAX_AUTO_AI_TIMEOUT_MS = 600_000;
 
 /** Promise that rejects after the given timeout. */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -94,6 +94,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 interface AIEnrichmentResult {
   provider: AIProvider | null;
   response: AIResponse | null;
+  analyzedCount?: number;
+  totalCount?: number;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -123,6 +125,9 @@ export default class PlaywrightOracleReporter implements Reporter {
   private baseReportOpened = false;
   private reportFinalized = false;
   private onEndPromise: Promise<void> | null = null;
+
+  /** Active enricher instance, kept for partial result recovery on timeout. */
+  private activeEnricher: ClaudeEnricher | OpenAIEnricher | null = null;
 
   private isDebugEnabled(): boolean {
     const logLevel = (getEnvVar("LOG_LEVEL") ?? "").toUpperCase();
@@ -510,6 +515,9 @@ export default class PlaywrightOracleReporter implements Reporter {
     // ── AI enrichment (optional; done after base report so report is always available) ─────
     let aiProvider: AIProvider | null = null;
     let aiResponse: AIResponse | null = null;
+    let isPartialResult = false;
+    let partialAnalyzedCount = 0;
+    let partialTotalCount = 0;
 
     try {
       const failedTestsCount = this.tests.filter(
@@ -538,7 +546,28 @@ export default class PlaywrightOracleReporter implements Reporter {
       aiResponse = enrichmentResult.response;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      this.safeLog(`⚠️  AI enrichment aborted: ${msg}`);
+
+      // ── Attempt to recover partial results from the active enricher ──
+      if (this.activeEnricher) {
+        const partial = this.activeEnricher.getPartialResults();
+        if (partial.response) {
+          aiProvider = this.aiProvider;
+          aiResponse = partial.response;
+          isPartialResult = true;
+          partialAnalyzedCount = partial.analyzedCount;
+          partialTotalCount = partial.totalCount;
+          // Prepend a partial-results note to the PM summary
+          const partialNote = `⚠️ PARTIAL RESULTS: Only ${String(partial.analyzedCount)}/${String(partial.totalCount)} failed tests were analyzed before the AI timeout was reached. Increase PW_ORACLE_AI_TIMEOUT_MS to analyze all tests.`;
+          aiResponse.pm_summary = `${partialNote}\n\n${aiResponse.pm_summary}`;
+          this.safeLog(
+            `⚠️  AI enrichment timed out — using partial results (${String(partial.analyzedCount)}/${String(partial.totalCount)} tests analyzed)`,
+          );
+        } else {
+          this.safeLog(`⚠️  AI enrichment aborted: ${msg}`);
+        }
+      } else {
+        this.safeLog(`⚠️  AI enrichment aborted: ${msg}`);
+      }
     }
 
     if (!aiResponse) {
@@ -550,6 +579,9 @@ export default class PlaywrightOracleReporter implements Reporter {
     await this.writeJSON("data/ai.enrichment.json", {
       provider: aiProvider,
       response: aiResponse,
+      isPartial: isPartialResult,
+      analyzedCount: isPartialResult ? partialAnalyzedCount : undefined,
+      totalCount: isPartialResult ? partialTotalCount : undefined,
     });
 
     // Update final composite JSON with enrichment
@@ -565,6 +597,9 @@ export default class PlaywrightOracleReporter implements Reporter {
         provider: aiProvider,
         enabled: true,
         success: true,
+        isPartial: isPartialResult,
+        analyzedCount: isPartialResult ? partialAnalyzedCount : undefined,
+        totalCount: isPartialResult ? partialTotalCount : undefined,
         pmSummary: aiResponse.pm_summary,
         hypotheses: aiResponse.root_cause_hypotheses.map((h) => h.hypothesis),
         flakyTestsReview: aiResponse.algorithmic_findings_review,
@@ -651,18 +686,8 @@ export default class PlaywrightOracleReporter implements Reporter {
 
       const response =
         provider === "openai"
-          ? await new OpenAIEnricher(apiKey).enrich({
-              run: this.runSummary,
-              tests: this.tests,
-              telemetry: metrics,
-              patterns: patterns.flakyTests as unknown[],
-            })
-          : await new ClaudeEnricher(apiKey).enrich({
-              run: this.runSummary,
-              tests: this.tests,
-              telemetry: metrics,
-              patterns: patterns.flakyTests as unknown[],
-            });
+          ? await this.enrichWithOpenAI(apiKey, metrics, patterns)
+          : await this.enrichWithClaude(apiKey, metrics, patterns);
 
       if (response) {
         this.safeLog(`✅ ${this.getProviderLabel(provider)} analysis complete.`);
@@ -681,6 +706,38 @@ export default class PlaywrightOracleReporter implements Reporter {
     }
 
     return { provider: this.aiProvider, response: null };
+  }
+
+  /** Create an OpenAI enricher, store it for partial-result recovery, and run enrichment. */
+  private async enrichWithOpenAI(
+    apiKey: string,
+    metrics: NormalizedSystemMetrics[],
+    patterns: PatternOutput,
+  ): Promise<AIResponse | null> {
+    const enricher = new OpenAIEnricher(apiKey);
+    this.activeEnricher = enricher;
+    return enricher.enrich({
+      run: this.runSummary,
+      tests: this.tests,
+      telemetry: metrics,
+      patterns: patterns.flakyTests as unknown[],
+    });
+  }
+
+  /** Create a Claude enricher, store it for partial-result recovery, and run enrichment. */
+  private async enrichWithClaude(
+    apiKey: string,
+    metrics: NormalizedSystemMetrics[],
+    patterns: PatternOutput,
+  ): Promise<AIResponse | null> {
+    const enricher = new ClaudeEnricher(apiKey);
+    this.activeEnricher = enricher;
+    return enricher.enrich({
+      run: this.runSummary,
+      tests: this.tests,
+      telemetry: metrics,
+      patterns: patterns.flakyTests as unknown[],
+    });
   }
 
   private resolveAIProviders(): AIProvider[] {

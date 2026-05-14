@@ -21,6 +21,12 @@ export class ClaudeEnricher {
   private config: ClaudeConfig;
   private debug: boolean = false;
 
+  // ── Partial-results state ─────────────────────────────
+  // Stored as instance state so the caller can retrieve whatever
+  // was successfully analyzed even if the overall promise is aborted.
+  private partialResponses: ClaudeResponse[] = [];
+  private partialTotalTests = 0;
+
   constructor(apiKey: string) {
     this.config = {
       apiKey,
@@ -44,12 +50,31 @@ export class ClaudeEnricher {
     this.debug = logLevel === "DEBUG" || process.env.PW_AI_DEBUG === "true";
   }
 
+  /**
+   * Retrieve partial results accumulated so far.
+   * Useful when the outer hard-timeout aborts `enrich()` mid-flight;
+   * the caller can still get aggregated results for the tests that completed.
+   */
+  getPartialResults(): { response: ClaudeResponse | null; analyzedCount: number; totalCount: number } {
+    if (this.partialResponses.length === 0) {
+      return { response: null, analyzedCount: 0, totalCount: this.partialTotalTests };
+    }
+    return {
+      response: this.aggregateResponses(this.partialResponses),
+      analyzedCount: this.partialResponses.length,
+      totalCount: this.partialTotalTests,
+    };
+  }
+
   async enrich(context: EnrichmentContext): Promise<ClaudeResponse | null> {
     try {
       // Get failed tests
       const failedTests = context.tests.filter(
         (t) => t.status === "failed" || t.status === "timedOut",
       );
+
+      this.partialTotalTests = failedTests.length;
+      this.partialResponses = [];
 
       if (failedTests.length === 0) {
         return null;
@@ -83,9 +108,10 @@ export class ClaudeEnricher {
         }
       }
 
-      const responses: ClaudeResponse[] = [];
       let nextIndex = 0;
 
+      // `responses` aliases the instance array so partial results survive an external abort.
+      const responses = this.partialResponses;
       const worker = async (): Promise<void> => {
         while (nextIndex < failedTests.length) {
           const i = nextIndex++;
