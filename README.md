@@ -248,8 +248,9 @@ Notes:
 
 - `PW_ORACLE_*_TIMEOUT_MS` values are per-request timeouts for the chosen provider.
 - `PW_ORACLE_AI_TIMEOUT_MS` is the overall budget for AI enrichment after the base report is generated.
-  - If you don't set it, the reporter auto-adjusts it based on the number of failed tests (capped to a few minutes).
+  - If you don't set it, the reporter auto-adjusts it based on the number of failed tests (capped at 10 minutes).
   - If you do set it, that value is treated as a hard limit.
+  - If the timeout is reached before all tests are analyzed, **partial results are preserved**. The report will include AI analysis for the tests that completed, with a clear banner indicating the results are partial.
 - `PW_ORACLE_CLAUDE_CONCURRENCY` controls how many failed tests are analyzed in parallel (default: `3`). In CI, `2`–`3` is usually the safest range.
 
 ## CLI
@@ -372,6 +373,21 @@ Check that:
 ### CI report directories are overwriting each other
 
 Assign a unique `PW_ORACLE_OUTPUT_DIR` per shard or workflow leg.
+
+### AI enrichment times out with many failures
+
+When you have a large number of failed tests (15+), the auto-scaled timeout may not be enough. You can:
+
+1. **Set a higher explicit timeout**:
+   ```bash
+   PW_ORACLE_AI_TIMEOUT_MS=600000  # 10 minutes
+   ```
+2. **Increase concurrency** (Claude only):
+   ```bash
+   PW_ORACLE_CLAUDE_CONCURRENCY=5
+   ```
+
+Even if the timeout is reached, partial results are preserved — the report will show AI analysis for whatever tests completed before the deadline, with a `⚠️ PARTIAL RESULTS` indicator.
 
 ## License
 

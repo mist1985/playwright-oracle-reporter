@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-05-14
+
+### Changed
+
+- Raised the maximum auto-scaling limit for `PW_ORACLE_AI_TIMEOUT_MS` from 5 minutes to 10 minutes to better support test suites with many failures.
+- Preserves partial AI enrichment results when the timeout is hit, ensuring completed test analyses are included in the report with a warning indicator.
 ### Added
 
 - Claude API integration for test failure analysis via Anthropic's Messages API
