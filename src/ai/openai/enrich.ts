@@ -64,7 +64,11 @@ export class OpenAIEnricher {
    * Retrieve partial results accumulated so far.
    * Useful when the outer hard-timeout aborts `enrich()` mid-flight.
    */
-  getPartialResults(): { response: OpenAIResponse | null; analyzedCount: number; totalCount: number } {
+  getPartialResults(): {
+    response: OpenAIResponse | null;
+    analyzedCount: number;
+    totalCount: number;
+  } {
     if (this.partialResponses.length === 0) {
       return { response: null, analyzedCount: 0, totalCount: this.partialTotalTests };
     }

@@ -55,7 +55,11 @@ export class ClaudeEnricher {
    * Useful when the outer hard-timeout aborts `enrich()` mid-flight;
    * the caller can still get aggregated results for the tests that completed.
    */
-  getPartialResults(): { response: ClaudeResponse | null; analyzedCount: number; totalCount: number } {
+  getPartialResults(): {
+    response: ClaudeResponse | null;
+    analyzedCount: number;
+    totalCount: number;
+  } {
     if (this.partialResponses.length === 0) {
       return { response: null, analyzedCount: 0, totalCount: this.partialTotalTests };
     }
