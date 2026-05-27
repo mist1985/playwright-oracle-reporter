@@ -2,7 +2,12 @@
  * Unit tests for HTML utility functions
  */
 
-import { escapeHtml, getAttachmentIcon, getAttachmentClass } from "../src/report/html-utils";
+import {
+  escapeHtml,
+  safeJsonForScript,
+  getAttachmentIcon,
+  getAttachmentClass,
+} from "../src/report/html-utils";
 
 describe("HTML Utilities", () => {
   describe("escapeHtml", () => {
@@ -30,6 +35,49 @@ describe("HTML Utilities", () => {
 
     it("should handle multiple special chars in sequence", () => {
       expect(escapeHtml("<<>>&&")).toBe("&lt;&lt;&gt;&gt;&amp;&amp;");
+    });
+  });
+
+  describe("safeJsonForScript", () => {
+    it("should escape < to prevent </script> injection", () => {
+      const result = safeJsonForScript({ title: "</script><script>alert(1)</script>" });
+      expect(result).not.toContain("</script>");
+      expect(result).toContain("\\u003c");
+      expect(result).toContain("\\u003e");
+    });
+
+    it("should escape & characters", () => {
+      const result = safeJsonForScript({ name: "AT&T" });
+      expect(result).not.toContain("&T");
+      expect(result).toContain("\\u0026");
+    });
+
+    it("should escape Unicode line separator U+2028", () => {
+      const ls = String.fromCharCode(0x2028);
+      const result = safeJsonForScript({ text: "before" + ls + "after" });
+      expect(result).not.toContain(ls);
+      expect(result).toContain("\\u2028");
+    });
+
+    it("should escape Unicode paragraph separator U+2029", () => {
+      const ps = String.fromCharCode(0x2029);
+      const result = safeJsonForScript({ text: "x" + ps + "y" });
+      expect(result).not.toContain(ps);
+      expect(result).toContain("\\u2029");
+    });
+
+    it("should produce parseable JSON", () => {
+      const input = { title: "test <b>bold</b> & more", count: 42 };
+      const raw = safeJsonForScript(input);
+      const parsed = JSON.parse(raw) as typeof input;
+      expect(parsed.title).toBe(input.title);
+      expect(parsed.count).toBe(42);
+    });
+
+    it("should handle null and undefined-free values", () => {
+      expect(() => safeJsonForScript(null)).not.toThrow();
+      expect(() => safeJsonForScript([])).not.toThrow();
+      expect(() => safeJsonForScript({})).not.toThrow();
     });
   });
 

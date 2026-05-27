@@ -23,6 +23,26 @@ export function escapeHtml(text: string): string {
 }
 
 /**
+ * Serialize a value to JSON that is safe for embedding inside a <script> tag.
+ *
+ * Standard JSON.stringify can produce strings such as </script> which would
+ * terminate the enclosing script block mid-document.  The five substitutions
+ * below prevent that while keeping the output valid JSON — the browser's
+ * JSON.parse handles these Unicode escapes transparently.
+ *
+ * @param value - Any JSON-serialisable value
+ * @returns A string safe to place between <script> and </script>
+ */
+export function safeJsonForScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+/**
  * Get an emoji icon for an attachment based on its type.
  *
  * @param name - Attachment filename

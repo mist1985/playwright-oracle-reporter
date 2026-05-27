@@ -92,6 +92,7 @@ describe("Validation Utilities", () => {
       expect(validateAIMode("rules")).toBe("rules");
       expect(validateAIMode("openai")).toBe("openai");
       expect(validateAIMode("claude")).toBe("claude");
+      expect(validateAIMode("off")).toBe("off");
     });
 
     it("should throw for invalid mode", () => {

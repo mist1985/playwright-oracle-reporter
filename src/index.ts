@@ -13,7 +13,7 @@
  *
  * @module index
  */
-import { execSync } from "child_process";
+import { spawn } from "child_process";
 import type {
   Reporter,
   FullConfig,
@@ -46,6 +46,8 @@ import {
 import { CONFIG_DEFAULTS, ENV_VARS, getEnvVar } from "./common/constants";
 import { loadDotenvIfAvailable } from "./common/env";
 import { normalizeSupportedPlatform, shouldAutoOpenReport } from "./common/platform";
+import { REPORTER_VERSION } from "./version";
+import { SignatureGenerator } from "./ai/rules/signature";
 
 // ── Report modules (extracted) ─────────────────────────────
 import { HtmlReportGenerator } from "./report/html/html-report-generator";
@@ -256,6 +258,26 @@ export default class PlaywrightOracleReporter implements Reporter {
   onTestEnd(test: TestCase, result: TestResult): void {
     try {
       const summary = PlaywrightOracleReporter.buildTestSummary(test, result);
+
+      // Write body-only attachments (no path) to the artifacts dir so they appear in the report
+      for (let i = 0; i < result.attachments.length; i++) {
+        const att = result.attachments[i];
+        if (!att.path && Buffer.isBuffer(att.body)) {
+          try {
+            const ext = PlaywrightOracleReporter.extFromContentType(att.contentType);
+            const safeName = att.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+            const safeId = test.id.replace(/[^a-zA-Z0-9_-]/g, "_");
+            const fileName = `${safeId}-${safeName}${ext}`;
+            const artifactsDir = path.join(this.config.outputDir, "artifacts");
+            this.ensureDir(artifactsDir);
+            fs.writeFileSync(path.join(artifactsDir, fileName), att.body);
+            summary.attachments[i].path = `artifacts/${fileName}`;
+          } catch {
+            // Non-fatal: best-effort only, never break Playwright
+          }
+        }
+      }
+
       this.tests.push(summary);
       this.updateRunSummary(result);
 
@@ -435,7 +457,6 @@ export default class PlaywrightOracleReporter implements Reporter {
     // ── Persist JSON data (base report, no AI enrichment yet) ─────────────
     await Promise.all([
       this.writeJSON("data/run.json", this.runSummary),
-      this.writeJSON("data/tests.json", this.tests),
       this.writeJSON("data/telemetry.json", metrics),
       this.writeJSON("data/ai.json", analysis),
       this.writeJSON("data/patterns.json", patterns),
@@ -462,6 +483,8 @@ export default class PlaywrightOracleReporter implements Reporter {
 
     // ── Artifacts ────────────────────────────────────────
     await this.artifactCopier.copyArtifacts(this.tests, this.config.outputDir);
+    // Write tests.json after copyArtifacts so attachment paths are already relative
+    await this.writeJSON("data/tests.json", this.tests);
 
     // ── HTML report ─────────────────────────────────────
     const context: ReportContext = {
@@ -493,7 +516,7 @@ export default class PlaywrightOracleReporter implements Reporter {
     if (this.isDebugEnabled()) {
       const debugInfo = {
         timestamp: new Date().toISOString(),
-        version: "1.1.5",
+        version: REPORTER_VERSION,
         config: { aiMode: this.config.aiMode, aiTimeoutMs: this.config.aiTimeoutMs },
         envKeys: {
           ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY
@@ -766,6 +789,22 @@ export default class PlaywrightOracleReporter implements Reporter {
   }
 
   /** Build a TestSummary from Playwright's native types. */
+  private static extFromContentType(contentType: string): string {
+    const ct = contentType.split(";")[0].trim().toLowerCase();
+    const map: Record<string, string> = {
+      "image/png": ".png",
+      "image/jpeg": ".jpg",
+      "image/gif": ".gif",
+      "image/webp": ".webp",
+      "text/plain": ".txt",
+      "application/json": ".json",
+      "application/zip": ".zip",
+      "video/webm": ".webm",
+      "video/mp4": ".mp4",
+    };
+    return map[ct] ?? "";
+  }
+
   private static buildTestSummary(test: TestCase, result: TestResult): TestSummary {
     const summary: TestSummary = {
       testId: test.id,
@@ -839,10 +878,15 @@ export default class PlaywrightOracleReporter implements Reporter {
         skipped: this.runSummary.skipped,
       },
       tests: this.tests.reduce<HistoryRecord["tests"]>((acc, t) => {
+        const needsSignature = t.status === "failed" || t.status === "timedOut";
+        const signatureHash = needsSignature
+          ? SignatureGenerator.normalizeError(t.error?.message ?? null, t.error?.stack ?? null)
+              .signatureHash
+          : null;
         acc[t.testId] = {
           status: t.status,
           durationMs: t.duration,
-          signatureHash: null,
+          signatureHash,
           retries: t.retries,
           attempt: 1,
         };
@@ -891,7 +935,7 @@ export default class PlaywrightOracleReporter implements Reporter {
   <p><strong>Tests Summary:</strong> ${String(this.runSummary.totalTests)} total, ${String(this.runSummary.passed)} passed, ${String(this.runSummary.failed)} failed</p>
   <footer style="margin-top: 4rem; padding: 2.5rem 1rem 1.5rem; border-top: 1px solid #e5e7eb; text-align: center; color: #6b7280; font-size: 0.875rem;">
     <div style="margin-bottom: 0.625rem; font-weight: 600; color: #1e293b;">
-      <strong>Playwright Oracle Reporter</strong> v1.0.0
+      <strong>Playwright Oracle Reporter</strong> v${REPORTER_VERSION}
     </div>
     <div>© 2026 Mihajlo Stojanovski. All rights reserved.</div>
   </footer>
@@ -938,13 +982,21 @@ export default class PlaywrightOracleReporter implements Reporter {
         return;
       }
 
+      let child;
       if (process.platform === "darwin") {
-        execSync(`open "${reportPath}"`, { stdio: "ignore" });
+        child = spawn("open", [reportPath], { detached: true, stdio: "ignore" });
       } else if (process.platform === "linux") {
-        execSync(`xdg-open "${reportPath}"`, { stdio: "ignore" });
+        child = spawn("xdg-open", [reportPath], { detached: true, stdio: "ignore" });
       } else if (process.platform === "win32") {
-        execSync(`start "" "${reportPath}"`, { stdio: "ignore" });
+        child = spawn("cmd", ["/c", "start", "", reportPath], {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+        });
+      } else {
+        return;
       }
+      child.unref();
     } catch (error: unknown) {
       // Opening browser is a nice-to-have, not critical
       if (this.isDebugEnabled()) {

@@ -5,7 +5,37 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.1.11] - 2026-05-27
+
+### Fixed
+
+- **`data/tests.json` contained stale absolute attachment paths.**
+  The JSON file was serialised inside a `Promise.all` block that ran concurrently with — and therefore before — the `copyArtifacts` step that rewrites attachment paths to relative form. The HTML report was already correct because it reads the in-memory state after mutation. `data/tests.json` now reflects the same relative paths as the HTML report by being written after `copyArtifacts` completes.
+
+- **Body-only attachments silently discarded.**
+  Attachments created via `testInfo.attach(name, { body: buffer, contentType })` (no file path) were mapped to an empty string path, appearing as a dead unclickable link in the test detail modal and carrying no usable data in `data/tests.json`. These attachments are now written to the report's `artifacts/` directory during `onTestEnd` and their paths stored as relative references, making them fully clickable in the HTML report and correctly represented in the JSON output.
+
+## [1.1.10] - 2026-05-26
+
+### Fixed
+
+- **`aiMode: "off"` rejected as invalid by `validateConfig()` and the `doctor` command.**
+  `"off"` is a documented mode that disables all AI enrichment, but the internal `AI_MODES` constant was missing the value, so `validateConfig({ aiMode: "off" })` incorrectly returned an error. It is now accepted alongside `"auto"`, `"rules"`, `"openai"`, and `"claude"`.
+
+- **XSS in HTML report `<script>` block.**
+  Test titles, error messages, and attachment metadata are serialised with `JSON.stringify` and embedded in an inline `<script>` tag. A title or error containing `</script>` would have broken out of the script context. All values embedded in `<script>` are now serialised with `safeJsonForScript`, which escapes `<`, `>`, `&`, and the Unicode line/paragraph separators (U+2028, U+2029) to their `\uXXXX` forms before embedding.
+
+- **XSS in test detail modal.**
+  The modal that appears when clicking a failed test was built by concatenating raw test data (error message, stack trace, attachment names, and attachment paths) into an `innerHTML` string. These values are now rendered exclusively with DOM APIs (`createElement` + `textContent`), preventing any HTML injection. Attachment links also now have `rel="noopener noreferrer"` and a `javascript:` protocol guard on the `href`.
+
+- **Shell injection surface in report auto-open.**
+  The browser-open helper was built with `execSync(\`open "${reportPath}"\`)`, passing the output path through a shell string. It now uses `spawn` with an explicit argument array (`spawn("open", [reportPath])`), eliminating the shell as an intermediary regardless of what the output path contains.
+
+- **Stale version strings in generated reports.**
+  The debug log file, fallback error report, and HTML footer each hard-coded old version strings (`"1.1.5"`, `"v1.0.0"`). All three now read from a single `src/version.ts` constant that matches the package version.
+
+- **Recurring failure detection was silently disabled.**
+  `buildHistoryRecord()` stored `signatureHash: null` for every test, making the pattern analyser unable to group errors across runs. Failed and timed-out tests now have their `signatureHash` computed from the normalised error message and stack before being written to history. The `recurringFailures` field in the patterns output will now correctly surface tests that keep failing with the same root cause across runs.
 
 ## [1.1.9] - 2026-05-14
 

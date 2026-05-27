@@ -285,11 +285,26 @@ By default the package writes:
 
 The HTML report is intended for local inspection or CI artifact upload. History is stored as run-scoped files to make repeated runs and CI usage safer than a shared append-only file.
 
+**Recurring failure detection** tracks tests that fail repeatedly with the same root cause across runs. The reporter computes a `signatureHash` from the normalised error message and stack trace for each failed test. When a test keeps failing with the same underlying error, it surfaces in the `recurringFailures` section of the pattern analysis so the team can prioritise it. This requires at least two historical runs in the history directory.
+
 ## AI Enrichment
 
 OpenAI and Claude integrations are optional. If enabled, the reporter can add higher-level analysis on top of the built-in rule engine.
 
 `aiMode: "auto"` prefers OpenAI when `OPENAI_API_KEY` is set, otherwise Claude when `ANTHROPIC_API_KEY` is set. If neither key is available, the reporter stays on local rules-based analysis.
+
+`aiMode: "off"` disables all AI enrichment and skips any API calls entirely. Use this when you want structured reports and history tracking but no provider dependencies.
+
+```ts
+// playwright.config.ts
+["playwright-oracle-reporter", { aiMode: "off" }]
+```
+
+Or via environment variable:
+
+```bash
+PW_ORACLE_AI_MODE=off
+```
 
 ### OpenAI example
 
@@ -369,6 +384,14 @@ Check that:
 - your `.env` file is in the project root if you rely on file-based env loading
 - your environment is available to the Playwright process that runs the reporter
 - the run had at least one failed or flaky test, because successful runs do not call the provider APIs
+
+### I want to disable AI enrichment entirely
+
+Set `aiMode: "off"` in your reporter config or `PW_ORACLE_AI_MODE=off` in the environment. This skips all provider API calls and is also recognised by the `doctor` command:
+
+```bash
+PW_ORACLE_AI_MODE=off npx playwright test
+```
 
 ### CI report directories are overwriting each other
 

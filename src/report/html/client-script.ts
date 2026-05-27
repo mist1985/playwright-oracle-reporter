@@ -87,26 +87,66 @@ export function getClientScript(): string {
 
       document.getElementById('modal-title').innerText = test.title;
 
-      let body = '<div style="margin-bottom: 1rem">'
-        + '<span class="badge ' + (test.status === 'failed' || test.status === 'timedOut' ? 'badge-danger' : 'badge-success') + '">' + test.status + '</span>'
-        + '<span style="margin-left:0.5rem;color:var(--text-secondary)">' + test.duration + 'ms</span>'
-        + (test.retries > 0 ? '<span style="margin-left:0.5rem;color:var(--color-flaky)">🔄 ' + test.retries + ' retries</span>' : '')
-        + '</div>';
+      const modalBody = document.getElementById('modal-body');
+      while (modalBody.firstChild) modalBody.removeChild(modalBody.firstChild);
 
+      // Status / duration row
+      const statusRow = document.createElement('div');
+      statusRow.style.marginBottom = '1rem';
+
+      const badge = document.createElement('span');
+      badge.className = 'badge ' + ((test.status === 'failed' || test.status === 'timedOut') ? 'badge-danger' : 'badge-success');
+      badge.textContent = test.status;
+      statusRow.appendChild(badge);
+
+      const dur = document.createElement('span');
+      dur.style.cssText = 'margin-left:0.5rem;color:var(--text-secondary)';
+      dur.textContent = test.duration + 'ms';
+      statusRow.appendChild(dur);
+
+      if (test.retries > 0) {
+        const ret = document.createElement('span');
+        ret.style.cssText = 'margin-left:0.5rem;color:var(--color-flaky)';
+        ret.textContent = '🔄 ' + test.retries + ' retries';
+        statusRow.appendChild(ret);
+      }
+      modalBody.appendChild(statusRow);
+
+      // Error section
       if (test.error) {
-        body += '<h4>Error</h4>'
-          + '<div class="error-message">' + test.error.message + '\\n' + (test.error.stack || '') + '</div>';
+        const errH4 = document.createElement('h4');
+        errH4.textContent = 'Error';
+        modalBody.appendChild(errH4);
+
+        const errBox = document.createElement('div');
+        errBox.className = 'error-message';
+        errBox.textContent = (test.error.message || '') + '\\n' + (test.error.stack || '');
+        modalBody.appendChild(errBox);
       }
 
+      // Attachments section
       if (test.attachments && test.attachments.length) {
-        body += '<h4 style="margin-top:1rem">Attachments</h4><div class="attachments">';
+        const attH4 = document.createElement('h4');
+        attH4.style.marginTop = '1rem';
+        attH4.textContent = 'Attachments';
+        modalBody.appendChild(attH4);
+
+        const attDiv = document.createElement('div');
+        attDiv.className = 'attachments';
         test.attachments.forEach(att => {
-          body += '<a href="' + att.path + '" target="_blank" class="attachment-link">📎 ' + att.name + '</a>';
+          const a = document.createElement('a');
+          a.className = 'attachment-link';
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.textContent = '📎 ' + att.name;
+          if (att.path && !/^javascript:/i.test(att.path)) {
+            a.href = att.path;
+          }
+          attDiv.appendChild(a);
         });
-        body += '</div>';
+        modalBody.appendChild(attDiv);
       }
 
-      document.getElementById('modal-body').innerHTML = body;
       document.getElementById('detail-modal').classList.add('open');
     }
 

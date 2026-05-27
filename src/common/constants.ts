@@ -62,6 +62,7 @@ export const VALIDATION_CONSTRAINTS = {
     RULES: "rules",
     OPENAI: "openai",
     CLAUDE: "claude",
+    OFF: "off",
   },
   /** Minimum recommended telemetry interval in seconds */
   MIN_TELEMETRY_INTERVAL: 1,
@@ -197,7 +198,7 @@ export function getBooleanEnvVar(key: EnvVarKey): boolean | undefined {
 /**
  * Valid AI modes
  */
-export const AI_MODES = ["auto", "rules", "openai", "claude"] as const;
+export const AI_MODES = ["auto", "rules", "openai", "claude", "off"] as const;
 export type AIMode = (typeof AI_MODES)[number];
 
 /**

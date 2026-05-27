@@ -34,7 +34,15 @@ export class ArtifactCopier implements IArtifactCopier {
       if (test.status !== "failed" && test.status !== "timedOut") continue;
 
       for (const attachment of test.attachments) {
-        if (!attachment.path || !fs.existsSync(attachment.path)) {
+        if (!attachment.path) {
+          missing++;
+          continue;
+        }
+        // Already a relative path — body attachment was materialized directly into artifacts dir
+        if (!path.isAbsolute(attachment.path)) {
+          continue;
+        }
+        if (!fs.existsSync(attachment.path)) {
           missing++;
           continue;
         }

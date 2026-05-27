@@ -9,9 +9,10 @@ import type { IHtmlReportGenerator, ReportContext, TestSummary } from "../interf
 import type { NormalizedSystemMetrics } from "../../telemetry/collectors/common";
 import type { Finding, RulesOutput, PatternOutput, TelemetrySummaryOutput } from "../../types";
 import type { AIProvider, AIResponse } from "../../ai/types";
-import { escapeHtml } from "../html-utils";
+import { escapeHtml, safeJsonForScript } from "../html-utils";
 import { getHtmlStyles } from "./styles";
 import { getClientScript } from "./client-script";
+import { REPORTER_VERSION } from "../../version";
 
 /**
  * Generates the complete self-contained HTML report.
@@ -133,8 +134,8 @@ ${getHtmlStyles(gradeColor)}
   </main>
   ${this.renderModal()}
   <script>
-    const tests = ${JSON.stringify(tests)};
-    const metrics = ${JSON.stringify(metrics)};
+    const tests = ${safeJsonForScript(tests)};
+    const metrics = ${safeJsonForScript(metrics)};
 ${getClientScript()}
   </script>
 </body>
@@ -281,7 +282,7 @@ ${getClientScript()}
               .slice(0, 10)
               .map(
                 (t) => `
-              <div class="test-card failed" onclick="openTestModal('${t.testId}')">
+              <div class="test-card failed" onclick="openTestModal('${escapeHtml(t.testId)}')">
                 <div class="test-header">
                   <div class="test-title">${escapeHtml(t.title)}</div>
                   <span class="badge badge-danger">FAILED</span>
@@ -328,7 +329,7 @@ ${getClientScript()}
           ${tests
             .map(
               (t) => `
-            <div class="test-card ${t.status === "failed" || t.status === "timedOut" ? "failed" : t.status === "passed" ? "passed" : "flaky"}" data-status="${t.status}" data-title="${escapeHtml(t.title).toLowerCase()}" onclick="openTestModal('${t.testId}')">
+            <div class="test-card ${t.status === "failed" || t.status === "timedOut" ? "failed" : t.status === "passed" ? "passed" : "flaky"}" data-status="${t.status}" data-title="${escapeHtml(t.title).toLowerCase()}" onclick="openTestModal('${escapeHtml(t.testId)}')">
               <div class="test-header">
                 <div class="test-title">${escapeHtml(t.title)}</div>
                 <span class="badge ${t.status === "failed" || t.status === "timedOut" ? "badge-danger" : t.status === "passed" ? "badge-success" : "badge-flaky"}">${t.status.toUpperCase()}</span>
@@ -688,7 +689,7 @@ ${getClientScript()}
   private renderFooter(): string {
     return `
      <footer class="footer">
-       <div class="footer-brand"><strong>Playwright Oracle Reporter</strong> v1.0.0</div>
+       <div class="footer-brand"><strong>Playwright Oracle Reporter</strong> v${REPORTER_VERSION}</div>
        <div class="footer-copyright">© 2026 Mihajlo Stojanovski. All rights reserved.</div>
      </footer>`;
   }
