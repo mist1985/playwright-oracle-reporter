@@ -4,17 +4,20 @@
 
 import { describe, it, beforeEach, afterEach, expect, jest } from "@jest/globals";
 import { validateConfig, printValidationResults } from "../src/config/validator";
-import * as os from "os";
 
 describe("Configuration Validator", () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    jest.spyOn(console, "log").mockImplementation(() => {});
+    jest.spyOn(console, "warn").mockImplementation(() => {});
+    jest.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
     process.env = originalEnv;
+    jest.restoreAllMocks();
   });
 
   describe("validateConfig", () => {
@@ -82,13 +85,12 @@ describe("Configuration Validator", () => {
 
   describe("printValidationResults", () => {
     it("should print results without throwing", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+      const consoleSpy = jest.spyOn(console, "log");
 
       const result = validateConfig();
       printValidationResults(result);
 
       expect(consoleSpy).toHaveBeenCalled();
-      consoleSpy.mockRestore();
     });
   });
 });

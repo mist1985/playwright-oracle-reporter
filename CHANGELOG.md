@@ -5,6 +5,16 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.12] - 2026-06-10
+
+### Fixed
+
+- **Test TypeScript configuration in editors.**
+  Added a test-local TypeScript config so Jest globals are resolved correctly across the `tests/` folder without changing the production build config.
+
+- **Noisy memory monitor test output on low-memory machines.**
+  Memory monitor tests now use stable mocked memory stats where sampling is required, avoiding environment-dependent critical memory logs during verification.
+
 ## [1.1.11] - 2026-05-27
 
 ### Fixed

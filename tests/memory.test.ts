@@ -5,7 +5,21 @@
 import { MemoryMonitor, DataChunker, ObjectPool } from "../src/utils/memory";
 
 describe("Memory Utilities", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   describe("MemoryMonitor", () => {
+    const stableMemoryStats = {
+      heapUsed: 50 * 1024 * 1024,
+      heapTotal: 100 * 1024 * 1024,
+      external: 10 * 1024 * 1024,
+      rss: 75 * 1024 * 1024,
+      percentUsed: 50,
+      systemFree: 12 * 1024 * 1024 * 1024,
+      systemTotal: 24 * 1024 * 1024 * 1024,
+    };
+
     it("should get current memory stats", () => {
       const stats = MemoryMonitor.getStats();
 
@@ -25,6 +39,8 @@ describe("Memory Utilities", () => {
     });
 
     it("should start and stop monitoring", () => {
+      jest.spyOn(MemoryMonitor, "getStats").mockReturnValue(stableMemoryStats);
+
       const monitor = new MemoryMonitor();
 
       monitor.startMonitoring(100);
@@ -35,6 +51,8 @@ describe("Memory Utilities", () => {
     });
 
     it("should collect memory samples", (done) => {
+      jest.spyOn(MemoryMonitor, "getStats").mockReturnValue(stableMemoryStats);
+
       const monitor = new MemoryMonitor();
 
       monitor.startMonitoring(50);

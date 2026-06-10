@@ -4,4 +4,4 @@
  *
  * @module version
  */
-export const REPORTER_VERSION = "1.1.11";
+export const REPORTER_VERSION = "1.1.12";
