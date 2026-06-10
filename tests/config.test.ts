@@ -2,6 +2,7 @@
  * Unit tests for configuration validator
  */
 
+import { describe, it, beforeEach, afterEach, expect, jest } from "@jest/globals";
 import { validateConfig, printValidationResults } from "../src/config/validator";
 import * as os from "os";
 
@@ -81,7 +82,7 @@ describe("Configuration Validator", () => {
 
   describe("printValidationResults", () => {
     it("should print results without throwing", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
 
       const result = validateConfig();
       printValidationResults(result);
