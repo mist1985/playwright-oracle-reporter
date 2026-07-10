@@ -235,6 +235,7 @@ Supported environment variables:
 - `PW_ORACLE_CLAUDE_RETRIES`
 - `PW_ORACLE_CLAUDE_MAX_INPUT_CHARS`
 - `PW_ORACLE_CLAUDE_CONCURRENCY`
+- `PW_ORACLE_HISTORY_DAYS` (number of days to retain flakiness history, default: `7`)
 
 Defaults:
 

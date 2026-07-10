@@ -5,6 +5,13 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.13] - 2026-07-10
+
+### Added
+
+- **Configurable flakiness history window.**
+  Set `PW_ORACLE_HISTORY_DAYS` to control how many days of flakiness history are retained (default: `7`). Invalid or missing values safely fall back to the default.
+
 ## [1.1.12] - 2026-06-10
 
 ### Fixed
