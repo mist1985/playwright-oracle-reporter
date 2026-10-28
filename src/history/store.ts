@@ -33,6 +33,9 @@ export interface TestPattern {
  * Legacy `runs.jsonl` history is still read and pruned for backwards compatibility.
  */
 export class HistoryStore {
+  /** Temp files older than this are leftovers from a crashed write. */
+  private static readonly TEMP_FILE_MAX_AGE_MS = 60 * 60 * 1000;
+
   private readonly historyDir: string;
   private readonly legacyRunsFile: string;
   private readonly runsDir: string;
@@ -75,7 +78,7 @@ export class HistoryStore {
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     const entries: HistoryRecord[] = [];
 
-    for (const { entry } of await this.loadRunFiles()) {
+    for (const { entry } of await this.loadRunFiles(cutoff)) {
       if (entry.timestamp >= cutoff) {
         entries.push(entry);
       }
@@ -97,9 +100,29 @@ export class HistoryStore {
     try {
       const cutoff = Date.now() - CAPS.HISTORY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
-      for (const { entry, filePath } of await this.loadRunFiles()) {
-        if (entry.timestamp < cutoff) {
-          await fs.promises.unlink(filePath).catch(() => undefined);
+      if (fs.existsSync(this.runsDir)) {
+        for (const fileName of await fs.promises.readdir(this.runsDir)) {
+          const filePath = path.join(this.runsDir, fileName);
+
+          // Orphaned temp files from a crash between write and rename
+          if (fileName.endsWith(".json.tmp")) {
+            const stat = await fs.promises.stat(filePath).catch(() => null);
+            if (stat && Date.now() - stat.mtimeMs > HistoryStore.TEMP_FILE_MAX_AGE_MS) {
+              await fs.promises.unlink(filePath).catch(() => undefined);
+            }
+            continue;
+          }
+
+          if (!fileName.endsWith(".json")) continue;
+
+          // Fast path: the run timestamp is encoded in the file name, so most
+          // files never need to be read just to decide whether to prune them.
+          const timestamp =
+            HistoryStore.timestampFromFileName(fileName) ??
+            (await HistoryStore.readEntry(filePath))?.timestamp;
+          if (timestamp !== undefined && timestamp < cutoff) {
+            await fs.promises.unlink(filePath).catch(() => undefined);
+          }
         }
       }
 
@@ -118,7 +141,9 @@ export class HistoryStore {
     }
   }
 
-  private async loadRunFiles(): Promise<Array<{ entry: HistoryRecord; filePath: string }>> {
+  private async loadRunFiles(
+    cutoff = Number.NEGATIVE_INFINITY,
+  ): Promise<Array<{ entry: HistoryRecord; filePath: string }>> {
     if (!fs.existsSync(this.runsDir)) return [];
 
     const fileNames = await fs.promises.readdir(this.runsDir);
@@ -127,17 +152,49 @@ export class HistoryStore {
     for (const fileName of fileNames) {
       if (!fileName.endsWith(".json")) continue;
 
+      // Skip files that are clearly outside the window without reading them
+      const nameTimestamp = HistoryStore.timestampFromFileName(fileName);
+      if (nameTimestamp !== undefined && nameTimestamp < cutoff) continue;
+
       const filePath = path.join(this.runsDir, fileName);
-      try {
-        const raw = await fs.promises.readFile(filePath, "utf-8");
-        const entry = JSON.parse(raw) as HistoryRecord;
+      const entry = await HistoryStore.readEntry(filePath);
+      if (entry) {
         entries.push({ entry, filePath });
-      } catch {
-        // Ignore corrupt files
       }
     }
 
     return entries;
+  }
+
+  /** Read and validate a single run file; returns null for corrupt or foreign files. */
+  private static async readEntry(filePath: string): Promise<HistoryRecord | null> {
+    try {
+      const raw = await fs.promises.readFile(filePath, "utf-8");
+      // Untrusted on-disk data: validate the fields every consumer relies on.
+      const entry = JSON.parse(raw) as Partial<HistoryRecord> | null;
+      if (
+        !entry ||
+        typeof entry !== "object" ||
+        typeof entry.timestamp !== "number" ||
+        !Number.isFinite(entry.timestamp) ||
+        !entry.tests ||
+        typeof entry.tests !== "object"
+      ) {
+        return null;
+      }
+      return entry as HistoryRecord;
+    } catch {
+      // Ignore corrupt files
+      return null;
+    }
+  }
+
+  /** Extract the run timestamp from `<timestamp>-<uuid>.json`, if present. */
+  private static timestampFromFileName(fileName: string): number | undefined {
+    const match = /^(\d{10,})-/.exec(fileName);
+    if (!match) return undefined;
+    const n = Number(match[1]);
+    return Number.isFinite(n) ? n : undefined;
   }
 
   private async loadLegacyEntries(days: number): Promise<HistoryRecord[]> {

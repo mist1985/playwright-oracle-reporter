@@ -17,6 +17,10 @@ import { collectWindowsMetrics } from "./collectors/windows";
 export class TelemetrySampler {
   private intervalId: NodeJS.Timeout | null = null;
   private metrics: NormalizedSystemMetrics[] = [];
+  /** True while a sample is being collected; prevents overlapping (piled-up) samples. */
+  private sampling = false;
+  /** Whether the sampler is running; samples resolving after stop() are discarded. */
+  private running = false;
   private readonly intervalMs: number;
   private linuxCollector: LinuxCollector;
 
@@ -26,7 +30,9 @@ export class TelemetrySampler {
    * @param intervalSeconds - Sampling interval in seconds (default: 3)
    */
   constructor(intervalSeconds: number = 3) {
-    this.intervalMs = intervalSeconds * 1000;
+    // Guard against 0, negative or NaN intervals, which would busy-loop setInterval.
+    const seconds = Number.isFinite(intervalSeconds) && intervalSeconds > 0 ? intervalSeconds : 3;
+    this.intervalMs = seconds * 1000;
     this.linuxCollector = new LinuxCollector();
   }
 
@@ -36,10 +42,22 @@ export class TelemetrySampler {
    */
   start(): void {
     if (this.intervalId) return;
-    this.sample().catch(() => {});
-    this.intervalId = setInterval(() => {
-      this.sample().catch(() => {});
-    }, this.intervalMs);
+    this.running = true;
+    this.tick();
+    this.intervalId = setInterval(() => this.tick(), this.intervalMs);
+    // Never keep the Node.js process alive just for telemetry.
+    this.intervalId.unref();
+  }
+
+  /** Start a sample unless the previous one is still in flight. */
+  private tick(): void {
+    if (this.sampling) return;
+    this.sampling = true;
+    this.sample()
+      .catch(() => {})
+      .finally(() => {
+        this.sampling = false;
+      });
   }
 
   /**
@@ -48,6 +66,7 @@ export class TelemetrySampler {
    * @returns Array of all collected system metrics
    */
   stop(): NormalizedSystemMetrics[] {
+    this.running = false;
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
@@ -110,7 +129,9 @@ export class TelemetrySampler {
       // 4. Validate (Non-blocking)
       this.validate(merged);
 
-      this.metrics.push(merged);
+      if (this.running) {
+        this.metrics.push(merged);
+      }
     } catch {
       // Silent fail - never crash reporter
       // console.error(error); // Debug only

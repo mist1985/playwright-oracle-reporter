@@ -5,6 +5,60 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.14] - 2026-10-28
+
+### Fixed
+
+- **Retried tests were counted once per attempt.**
+  Playwright calls `onTestEnd` for every attempt. A test that failed and then passed on retry was counted as failed *and* passed, inflated the total, appeared twice in the HTML report, and triggered AI analysis for a run that ultimately passed. Each test is now one entry describing its final attempt; earlier attempts are kept in a new optional `previousAttempts` field (with their errors and attachments) and shown in the test detail modal. Run totals now match Playwright's own `expected`/`unexpected`/`flaky`/`skipped` counts.
+
+- **Artifacts of retried attempts overwrote each other.**
+  Attempt N's `trace.zip`/screenshot was copied over attempt N-1's file. Retried attempts now use a `-retryN` suffix (first attempts keep their existing file names), and failed attempts of flaky tests now have their artifacts copied too. Body attachments with the same name within one attempt no longer overwrite each other.
+
+- **Ctrl+C discarded every reporter's output.**
+  The reporter's SIGINT handler called `process.exit()` before Playwright could interrupt the run gracefully, so neither this report nor other reporters (`html`, `json`, `junit`) were written. The first Ctrl+C is now left to Playwright, which finalizes all reporters; a second Ctrl+C still forces an exit after saving emergency data. Signal and exit listeners are installed only for the duration of a run and removed afterwards (no leaked listeners when the reporter is instantiated without running tests).
+
+- **Process could hang after the AI timeout.**
+  The overall AI timeout did not cancel in-flight HTTP requests or retry waits. Requests are now cancelled when the timeout fires, the per-request timeout also covers reading the response body, and retry timers no longer keep the process alive.
+
+- **Invalid API key caused one failing request per failed test.**
+  401/403/404 responses now stop further requests for the run. The circuit breaker never opened before (request errors were swallowed before it could count them) and counted non-consecutive failures; it now opens after 5 consecutive failed requests and re-opens if its recovery probe fails. `Retry-After` headers on 429/503 are honoured (capped at 30s), and no wait happens after the final attempt. OpenAI now reuses one client for the whole run.
+
+- **`PW_ORACLE_HISTORY_DAYS` and `PW_ORACLE_THRESHOLD_*` were ignored when set in `.env`.**
+  These values were read when the module was imported, before `.env` was loaded. They are now read at use time. Invalid threshold values fall back to defaults instead of silently disabling detection.
+
+- **Invalid numeric AI settings broke AI analysis.**
+  A non-numeric `PW_ORACLE_CLAUDE_TIMEOUT_MS`/`*_RETRIES`/`*_MAX_TOKENS` (and OpenAI equivalents) produced `NaN`, which aborted every request instantly or skipped the request entirely. Invalid values now fall back to defaults.
+
+- **Anthropic API keys were not redacted from AI payloads.**
+  The redaction pattern stopped at the hyphen in `sk-ant-…`. Redaction now also covers stack traces, bearer tokens, JWTs, URL credentials, common cloud/VCS tokens, `password=`/`token=`-style pairs and Windows home directories, and replaces every home-directory occurrence rather than only the first.
+
+- **Windows: console spam and WMIC dependency.**
+  The Windows collector logged at INFO level every sample interval and shelled out to `wmic` (removed on recent Windows 11 builds) three times per sample. It now uses Node.js APIs only, and reports real user/system/idle CPU percentages instead of an estimated split. Disk space is measured on the drive containing the working directory.
+
+- **Process crash when the browser opener is missing.**
+  If `xdg-open` (or equivalent) was not installed, the asynchronous spawn error was unhandled and could crash the Playwright process at the end of the run. It is now ignored (logged in debug mode).
+
+- **Unescaped error text in the fallback HTML report.**
+
+- **Telemetry hardening.** Samples no longer overlap when collection is slower than the interval, late samples after the run are discarded, the sampling timer no longer keeps the process alive, subprocesses have a 5s timeout, and a `0`/invalid interval no longer causes a busy loop.
+
+- **`REPORTER_VERSION` was out of sync** with the published package version (a test now enforces this).
+
+- **Error line pointed into the wrong file.** The reported line is only moved to the error location when that location is in the test's own file.
+
+### Added
+
+- **Errors outside of tests are reported.** Configuration errors, files that fail to load, and worker crashes (`Reporter.onError`) are printed to the terminal, stored in `data/run.json` as `globalErrors`, and shown as a banner in the HTML report. Previously a run where no test could load looked like an empty, healthy run.
+- `data/run.json` now includes the overall Playwright run `status`, and test entries include `projectName` when the test belongs to a named project.
+- The Flaky filter in the HTML report now works (it previously matched nothing), and the Failed filter includes interrupted tests.
+- Report JSON and HTML files are written atomically, so a killed process never leaves a half-written file.
+
+### Changed
+
+- History pruning uses the timestamp encoded in each run file name instead of reading every file, removes orphaned temp files from crashed writes, and ignores files that are not valid history records.
+- `PW_ORACLE_AI_TIMEOUT_MS` is no longer written to `process.env` during the run.
+
 ## [1.1.13] - 2026-07-10
 
 ### Added

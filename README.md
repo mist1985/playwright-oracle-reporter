@@ -343,6 +343,17 @@ export PW_ORACLE_CLAUDE_MODEL="claude-sonnet-4-20250514"
 
 If no matching API key is set, the reporter falls back to local rules-based analysis. Provider enrichment only runs for failed or flaky runs.
 
+### What is sent to AI providers
+
+Only sanitized text is sent: test title, error message, the first lines of the stack trace, duration, status, and summarized telemetry. Attachments (traces, screenshots, videos) are never uploaded. Before sending, the reporter:
+
+- replaces home directories (`/Users/<name>`, `/home/<name>`, `C:\Users\<name>`) with `~`
+- redacts common secrets: API keys (`sk-…`, including Anthropic and project keys), bearer/basic tokens, JWTs, credentials in URLs, GitHub/Slack/AWS/Google tokens, and `password=`/`token=`/`api_key=`-style pairs
+
+Redaction is pattern-based and best-effort; avoid putting secrets in assertion messages.
+
+If the API key is rejected (401/403) or the model is not found (404), the reporter stops calling the provider for the rest of the run instead of retrying for every failed test. When the overall AI timeout is reached, in-flight requests are cancelled and any analyses already completed are kept as partial results.
+
 ## Development
 
 ```bash
