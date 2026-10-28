@@ -45,6 +45,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 - **`REPORTER_VERSION` was out of sync** with the published package version (a test now enforces this).
 
+- **CI and development scripts on Windows.** `lint`/`format` scripts quoted their globs with single quotes, which Windows `cmd` passes through literally, so CI failed on Windows and cancelled every other platform's job. The CI matrix also no longer cancels remaining platforms on the first failure.
+
 - **Error line pointed into the wrong file.** The reported line is only moved to the error location when that location is in the test's own file.
 
 ### Added
