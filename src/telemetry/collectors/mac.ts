@@ -10,6 +10,9 @@ import { MetricsPatch } from "./common";
 
 const execAsync = promisify(exec);
 
+/** Hard cap for telemetry subprocesses so a hung command can never stall sampling. */
+const COMMAND_TIMEOUT_MS = 5000;
+
 /**
  * Collects macOS specific metrics.
  */
@@ -50,7 +53,7 @@ export async function collectMacMetrics(): Promise<MetricsPatch> {
     // Fallback to df
     if (freeBytes === null) {
       try {
-        const { stdout } = await execAsync("df -k .");
+        const { stdout } = await execAsync("df -k .", { timeout: COMMAND_TIMEOUT_MS });
         const lines = stdout.trim().split("\n");
         if (lines.length >= 2) {
           const parts = lines[1].split(/\s+/);
@@ -70,7 +73,9 @@ export async function collectMacMetrics(): Promise<MetricsPatch> {
 
     // 2. CPU Usage (top -l 1)
     try {
-      const { stdout } = await execAsync('top -l 1 -n 0 | grep "CPU usage"');
+      const { stdout } = await execAsync('top -l 1 -n 0 | grep "CPU usage"', {
+        timeout: COMMAND_TIMEOUT_MS,
+      });
       const userMatch = stdout.match(/([\d.]+)% user/);
       const sysMatch = stdout.match(/([\d.]+)% sys/);
       const idleMatch = stdout.match(/([\d.]+)% idle/);

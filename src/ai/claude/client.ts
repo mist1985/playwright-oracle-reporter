@@ -2,7 +2,15 @@
  * Claude API client backed by Anthropic's Messages API.
  */
 
-import { CircuitBreaker, RateLimiter } from "../common/client-guards";
+import {
+  CircuitBreaker,
+  RateLimiter,
+  RequestAbortedError,
+  RequestFailedError,
+  abortableSleep,
+  computeBackoffMs,
+  retryAfterFromResponse,
+} from "../common/client-guards";
 import { getAnalysisSystemPrompt } from "../prompts";
 import type { ClaudeConfig } from "./types";
 import { getEnvVar } from "../../common/constants";
@@ -122,6 +130,9 @@ export class ClaudeClient {
   private circuitBreaker: CircuitBreaker;
   private requestCount = 0;
   private errorCount = 0;
+  /** Set on non-recoverable errors (bad key, missing model) so remaining calls fail fast. */
+  private fatalError: string | null = null;
+  private circuitWarningShown = false;
 
   constructor(private config: ClaudeConfig) {
     this.rateLimiter = new RateLimiter(50, 10);
@@ -140,25 +151,50 @@ export class ClaudeClient {
     };
   }
 
-  async complete(payload: unknown): Promise<unknown> {
+  /**
+   * Whether further requests can succeed. False after a fatal error
+   * (e.g. invalid API key) or while the circuit breaker is open.
+   */
+  isAvailable(): boolean {
+    return this.fatalError === null && !this.circuitBreaker.isOpen();
+  }
+
+  async complete(payload: unknown, signal?: AbortSignal): Promise<unknown> {
+    if (this.fatalError !== null || signal?.aborted) {
+      return null;
+    }
+
     await this.rateLimiter.acquire();
 
     return this.circuitBreaker
       .execute(async () => {
-        return this.executeRequest(payload);
+        return this.executeRequest(payload, signal);
       })
       .catch((err: unknown) => {
+        if (err instanceof RequestAbortedError) {
+          return null;
+        }
         this.errorCount++;
         if (err instanceof Error && err.message.includes("Circuit breaker")) {
-          console.warn(
-            "⚠️  Claude circuit breaker triggered - falling back to rules-based analysis",
-          );
+          if (!this.circuitWarningShown) {
+            this.circuitWarningShown = true;
+            console.warn(
+              "⚠️  Claude circuit breaker triggered - falling back to rules-based analysis",
+            );
+          }
         }
         return null;
       });
   }
 
-  private async executeRequest(payload: unknown): Promise<unknown> {
+  /**
+   * Execute one logical request with retries.
+   *
+   * Resolves with the parsed analysis, or `null` for non-retryable request errors.
+   * Throws {@link RequestFailedError} when retries are exhausted (counted by the
+   * circuit breaker) and {@link RequestAbortedError} when `signal` aborts.
+   */
+  private async executeRequest(payload: unknown, signal?: AbortSignal): Promise<unknown> {
     this.requestCount++;
 
     const logLevel = (getEnvVar("LOG_LEVEL") ?? "").toUpperCase();
@@ -174,25 +210,24 @@ export class ClaudeClient {
       tools: [buildAnalysisTool()],
       tool_choice: { type: "tool", name: "record_analysis" },
     };
+    const serializedBody = JSON.stringify(body);
 
     let attempts = 0;
+    let lastError = "unknown error";
     while (attempts <= this.config.retries) {
+      if (signal?.aborted) throw new RequestAbortedError();
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
+      const onExternalAbort = () => controller.abort();
+      signal?.addEventListener("abort", onExternalAbort, { once: true });
+
       try {
         if (debug) {
-          const size = (() => {
-            try {
-              return JSON.stringify(payload).length;
-            } catch {
-              return -1;
-            }
-          })();
           console.log(
-            `[PW-AI] Claude request attempt ${String(attempts + 1)}/${String(this.config.retries + 1)} (model=${this.config.model}, payloadChars=${String(size)}, timeoutMs=${String(this.config.timeoutMs)})`,
+            `[PW-AI] Claude request attempt ${String(attempts + 1)}/${String(this.config.retries + 1)} (model=${this.config.model}, payloadChars=${String(serializedBody.length)}, timeoutMs=${String(this.config.timeoutMs)})`,
           );
         }
-
-        const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
         const res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
@@ -201,11 +236,9 @@ export class ClaudeClient {
             "x-api-key": this.config.apiKey,
             "anthropic-version": this.config.anthropicVersion,
           },
-          body: JSON.stringify(body),
+          body: serializedBody,
           signal: controller.signal,
         });
-
-        clearTimeout(id);
 
         if (debug) {
           console.log(
@@ -216,28 +249,40 @@ export class ClaudeClient {
         if (!res.ok) {
           const errorBody = await res.text().catch(() => "Unable to read error");
 
-          if (res.status === 429 || res.status === 529) {
+          if (res.status === 429 || res.status === 529 || res.status >= 500) {
             attempts++;
-            const backoff = Math.min(1000 * Math.pow(2, attempts), 10000);
-            console.warn(
-              `⚠️  Claude rate limit or overload hit, retrying in ${String(backoff)}ms (attempt ${String(attempts)}/${String(this.config.retries)})`,
-            );
-            await new Promise((resolve) => setTimeout(resolve, backoff));
+            lastError = `HTTP ${String(res.status)}`;
+            if (attempts > this.config.retries) break;
+            const backoff = computeBackoffMs(attempts, retryAfterFromResponse(res));
+            if (res.status === 429 || res.status === 529) {
+              console.warn(
+                `⚠️  Claude rate limit or overload hit, retrying in ${String(backoff)}ms (attempt ${String(attempts)}/${String(this.config.retries)})`,
+              );
+            } else {
+              console.warn(
+                `⚠️  Claude server error (${String(res.status)}), retrying in ${String(backoff)}ms`,
+              );
+            }
+            await abortableSleep(backoff, signal);
             continue;
           }
 
-          if (res.status >= 500) {
-            attempts++;
-            const backoff = Math.min(1000 * Math.pow(2, attempts), 10000);
-            console.warn(
-              `⚠️  Claude server error (${String(res.status)}), retrying in ${String(backoff)}ms`,
+          if (res.status === 401 || res.status === 403) {
+            this.fatalError = `HTTP ${String(res.status)}`;
+            console.error(
+              res.status === 401
+                ? "❌ Claude API key is invalid"
+                : "❌ Claude API key does not have permission for this request",
             );
-            await new Promise((resolve) => setTimeout(resolve, backoff));
-            continue;
+            return null;
           }
 
-          if (res.status === 401) {
-            console.error("❌ Claude API key is invalid");
+          if (res.status === 404) {
+            this.fatalError = "HTTP 404";
+            console.error(
+              `❌ Claude model or endpoint not found (model=${this.config.model}):`,
+              errorBody,
+            );
             return null;
           }
 
@@ -250,6 +295,7 @@ export class ClaudeClient {
           return null;
         }
 
+        // Body read is still covered by the request timeout.
         const data = ((await res.json()) as ClaudeMessageResponse | null) ?? {};
         const toolUse = data.content?.find(
           (block) => block.type === "tool_use" && block.name === "record_analysis",
@@ -265,12 +311,16 @@ export class ClaudeClient {
 
         return text ? JSON.parse(text) : null;
       } catch (e: unknown) {
+        if (signal?.aborted) throw new RequestAbortedError();
+
         attempts++;
 
         const message = e instanceof Error ? e.message : String(e);
         const name = e instanceof Error ? e.name : "";
+        lastError = message;
 
-        if (name === "AbortError") {
+        // External aborts were handled above, so an aborted controller here means timeout.
+        if (controller.signal.aborted || name === "AbortError") {
           console.warn(`⚠️  Claude request timeout after ${String(this.config.timeoutMs)}ms`);
         } else if (message.includes("fetch")) {
           console.warn(`⚠️  Network error calling Claude: ${message}`);
@@ -278,16 +328,17 @@ export class ClaudeClient {
           console.warn(`⚠️  Claude request failed: ${message}`);
         }
 
-        if (attempts > this.config.retries) {
-          console.error(`❌ Claude request failed after ${String(this.config.retries)} retries`);
-          return null;
-        }
+        if (attempts > this.config.retries) break;
 
-        const backoff = Math.min(1000 * Math.pow(2, attempts), 10000);
-        await new Promise((resolve) => setTimeout(resolve, backoff));
+        await abortableSleep(computeBackoffMs(attempts), signal);
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onExternalAbort);
       }
     }
 
-    return null;
+    if (signal?.aborted) throw new RequestAbortedError();
+    console.error(`❌ Claude request failed after ${String(this.config.retries)} retries`);
+    throw new RequestFailedError(`Claude request failed: ${lastError}`);
   }
 }

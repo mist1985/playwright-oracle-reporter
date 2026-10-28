@@ -35,6 +35,32 @@ export interface TestSummary {
     contentType: string;
   }>;
   readonly retries: number;
+  /** Playwright project name, when the test belongs to a named project. */
+  readonly projectName?: string;
+  /**
+   * Earlier attempts of this test when it was retried, oldest first.
+   * The summary itself always describes the final attempt.
+   */
+  readonly previousAttempts?: AttemptSummary[];
+}
+
+/**
+ * A single (non-final) attempt of a retried test.
+ */
+export interface AttemptSummary {
+  readonly retry: number;
+  readonly status: string;
+  readonly duration: number;
+  readonly startTime: number;
+  readonly error?: {
+    readonly message: string;
+    readonly stack?: string;
+  };
+  readonly attachments: Array<{
+    name: string;
+    path: string;
+    contentType: string;
+  }>;
 }
 
 /**
@@ -50,6 +76,10 @@ export interface RunSummary {
   skipped: number;
   flaky: number;
   label?: string;
+  /** Overall Playwright run status, as reported to `onEnd`. */
+  status?: "passed" | "failed" | "timedout" | "interrupted";
+  /** Errors reported outside of any test (`Reporter.onError`). */
+  globalErrors?: Array<{ message: string; stack?: string }>;
 }
 
 /**

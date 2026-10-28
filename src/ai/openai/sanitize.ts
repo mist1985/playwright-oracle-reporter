@@ -6,6 +6,7 @@
 import type { NormalizedSystemMetrics } from "../../telemetry/collectors/common";
 import type { TelemetrySanitizedSummary } from "../../types";
 import type { RunSummary, TestSummary } from "../../report/interfaces";
+import { redactPaths, redactText } from "../redact";
 
 export interface SanitizeInput {
   run: RunSummary;
@@ -102,22 +103,18 @@ export class PayloadSanitizer {
   private static redactPath(path: string): string {
     if (!path) return "";
     // Replace user home with ~
-    return path.replace(/\/Users\/[^\/]+/, "~").replace(/\/home\/[^\/]+/, "~");
+    return redactPaths(path);
   }
 
   private static cleanError(msg: string): string {
     if (!msg) return "";
-    let clean = msg.replace(/\x1b\[[0-9;]*m/g, ""); // Remove ansi colors
-    // Redact potential API keys (sk-...)
-    clean = clean.replace(/sk-[a-zA-Z0-9]{20,}/g, "[REDACTED_KEY]");
-    return clean.slice(0, 500); // Cap length
+    return redactText(msg).slice(0, 500); // Cap length
   }
 
   private static cleanStack(stack: string): string {
     if (!stack) return "";
-    const clean = stack.replace(/\x1b\[[0-9;]*m/g, "");
-    const lines = clean.split("\n");
-    // Keep first 3 relevant lines
+    const lines = redactText(stack).split("\n");
+    // Keep the first few relevant lines
     return lines.slice(0, 5).join("\n").slice(0, 1000);
   }
 

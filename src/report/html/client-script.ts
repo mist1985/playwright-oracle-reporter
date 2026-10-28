@@ -66,8 +66,10 @@ export function getClientScript(): string {
           card.style.display = 'flex';
         } else {
           const s = card.dataset.status;
-          card.style.display = (s === status || (status === 'failed' && s === 'timedOut'))
-            ? 'flex' : 'none';
+          const matches = status === 'flaky'
+            ? card.dataset.flaky === 'true'
+            : (s === status || (status === 'failed' && (s === 'timedOut' || s === 'interrupted')));
+          card.style.display = matches ? 'flex' : 'none';
         }
       });
     }
@@ -125,29 +127,67 @@ export function getClientScript(): string {
       }
 
       // Attachments section
-      if (test.attachments && test.attachments.length) {
-        const attH4 = document.createElement('h4');
-        attH4.style.marginTop = '1rem';
-        attH4.textContent = 'Attachments';
-        modalBody.appendChild(attH4);
+      appendAttachments(modalBody, test.attachments, 'Attachments');
 
-        const attDiv = document.createElement('div');
-        attDiv.className = 'attachments';
-        test.attachments.forEach(att => {
-          const a = document.createElement('a');
-          a.className = 'attachment-link';
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
-          a.textContent = '📎 ' + att.name;
-          if (att.path && !/^javascript:/i.test(att.path)) {
-            a.href = att.path;
+      // Earlier attempts (retries) — keeps the failure details of flaky tests visible
+      if (test.previousAttempts && test.previousAttempts.length) {
+        const prevH4 = document.createElement('h4');
+        prevH4.style.marginTop = '1.5rem';
+        prevH4.textContent = 'Previous attempts';
+        modalBody.appendChild(prevH4);
+
+        test.previousAttempts.forEach(attempt => {
+          const row = document.createElement('div');
+          row.style.marginTop = '0.75rem';
+          const label = document.createElement('strong');
+          label.textContent = 'Attempt ' + (attempt.retry + 1) + ': ';
+          row.appendChild(label);
+          const st = document.createElement('span');
+          st.className = 'badge ' + ((attempt.status === 'failed' || attempt.status === 'timedOut') ? 'badge-danger' : 'badge-success');
+          st.textContent = attempt.status;
+          row.appendChild(st);
+          const d = document.createElement('span');
+          d.style.cssText = 'margin-left:0.5rem;color:var(--text-secondary)';
+          d.textContent = attempt.duration + 'ms';
+          row.appendChild(d);
+          modalBody.appendChild(row);
+
+          if (attempt.error) {
+            const box = document.createElement('div');
+            box.className = 'error-message';
+            box.textContent = (attempt.error.message || '') + '\\n' + (attempt.error.stack || '');
+            modalBody.appendChild(box);
           }
-          attDiv.appendChild(a);
+          appendAttachments(modalBody, attempt.attachments, null);
         });
-        modalBody.appendChild(attDiv);
       }
 
       document.getElementById('detail-modal').classList.add('open');
+    }
+
+    function appendAttachments(container, attachments, heading) {
+      if (!attachments || !attachments.length) return;
+      if (heading) {
+        const attH4 = document.createElement('h4');
+        attH4.style.marginTop = '1rem';
+        attH4.textContent = heading;
+        container.appendChild(attH4);
+      }
+
+      const attDiv = document.createElement('div');
+      attDiv.className = 'attachments';
+      attachments.forEach(att => {
+        const a = document.createElement('a');
+        a.className = 'attachment-link';
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = '📎 ' + att.name;
+        if (att.path && !/^javascript:/i.test(att.path)) {
+          a.href = att.path;
+        }
+        attDiv.appendChild(a);
+      });
+      container.appendChild(attDiv);
     }
 
     function closeModal(e) {

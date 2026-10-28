@@ -10,6 +10,9 @@ import { MetricsPatch } from "./common";
 
 const execAsync = promisify(exec);
 
+/** Hard cap for telemetry subprocesses so a hung command can never stall sampling. */
+const COMMAND_TIMEOUT_MS = 5000;
+
 export interface CpuState {
   total: number;
   steal: number;
@@ -122,7 +125,7 @@ export class LinuxCollector {
 
       // 3. Disk Usage (df -k)
       try {
-        const { stdout } = await execAsync("df -k .");
+        const { stdout } = await execAsync("df -k .", { timeout: COMMAND_TIMEOUT_MS });
         const lines = stdout.trim().split("\n");
         if (lines.length >= 2) {
           // Filesystem 1k-blocks Used Available Use% Mounted on

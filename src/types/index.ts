@@ -23,19 +23,41 @@ export const CAPS = {
   MAX_EVIDENCE_REFS: 5,
   MAX_RECOMMENDED_ACTIONS: 5,
   MAX_TESTS_IN_HISTORY: 500,
-  HISTORY_WINDOW_DAYS: Math.max(1, parseInt(getEnvVar("HISTORY_DAYS") ?? "7", 10) || 7),
+  /**
+   * Read lazily so values from a `.env` file (loaded in the reporter
+   * constructor, after this module is imported) are honoured.
+   */
+  get HISTORY_WINDOW_DAYS(): number {
+    return Math.max(1, parseInt(getEnvVar("HISTORY_DAYS") ?? "7", 10) || 7);
+  },
   TELEMETRY_CORRELATION_BUFFER_MS: 5000,
 };
 
+/** Parse a float env override, falling back to the default when missing or invalid. */
+function envFloat(key: Parameters<typeof getEnvVar>[0], fallback: number): number {
+  const raw = getEnvVar(key);
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 /**
  * Thresholds for telemetry correlation.
- * Can be overridden via environment variables.
+ * Can be overridden via environment variables (read lazily, see CAPS).
  */
 export const THRESHOLDS = {
-  LOAD1: parseFloat(getEnvVar("THRESHOLD_LOAD1") ?? "4.0"),
-  PRESSURE_PCT: parseFloat(getEnvVar("THRESHOLD_PRESSURE") ?? "10"),
-  IOWAIT_PCT: parseFloat(getEnvVar("THRESHOLD_IOWAIT") ?? "20"),
-  STEAL_PCT: parseFloat(getEnvVar("THRESHOLD_STEAL") ?? "10"),
+  get LOAD1(): number {
+    return envFloat("THRESHOLD_LOAD1", 4.0);
+  },
+  get PRESSURE_PCT(): number {
+    return envFloat("THRESHOLD_PRESSURE", 10);
+  },
+  get IOWAIT_PCT(): number {
+    return envFloat("THRESHOLD_IOWAIT", 20);
+  },
+  get STEAL_PCT(): number {
+    return envFloat("THRESHOLD_STEAL", 10);
+  },
 };
 
 /**

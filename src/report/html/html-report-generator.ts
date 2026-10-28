@@ -191,6 +191,21 @@ ${getClientScript()}
       </div>`;
   }
 
+  /** Errors outside of any test (config errors, file load failures, worker crashes). */
+  private renderGlobalErrors(runSummary: ReportContext["runSummary"]): string {
+    const errors = runSummary.globalErrors ?? [];
+    if (errors.length === 0) return "";
+    return `
+        <div class="card" style="margin-bottom: 1.5rem; border-left: 4px solid var(--color-danger);">
+          <h3 style="margin-top: 0; color: var(--color-danger);">⚠️ ${String(errors.length)} error${errors.length === 1 ? "" : "s"} outside of tests</h3>
+          <p style="color: var(--text-secondary);">These errors happened outside any single test (for example a configuration error, a file that failed to load, or a crashed worker) and may explain missing tests.</p>
+          ${errors
+            .slice(0, 10)
+            .map((e) => `<div class="error-message">${escapeHtml(e.message)}</div>`)
+            .join("")}
+        </div>`;
+  }
+
   private renderOverviewView(
     tests: TestSummary[],
     runSummary: ReportContext["runSummary"],
@@ -199,6 +214,7 @@ ${getClientScript()}
 
     return `
       <div id="view-overview" class="view-section active">
+        ${this.renderGlobalErrors(runSummary)}
         <div class="grid">
           <div class="card stat-card" style="--stat-color: var(--color-danger)">
             <div class="stat-label">❌ Failed</div>
@@ -329,7 +345,7 @@ ${getClientScript()}
           ${tests
             .map(
               (t) => `
-            <div class="test-card ${t.status === "failed" || t.status === "timedOut" ? "failed" : t.status === "passed" ? "passed" : "flaky"}" data-status="${t.status}" data-title="${escapeHtml(t.title).toLowerCase()}" onclick="openTestModal('${escapeHtml(t.testId)}')">
+            <div class="test-card ${t.status === "failed" || t.status === "timedOut" ? "failed" : t.status === "passed" ? "passed" : "flaky"}" data-status="${t.status}" data-flaky="${t.status === "passed" && t.retries > 0 ? "true" : "false"}" data-title="${escapeHtml(t.title).toLowerCase()}" onclick="openTestModal('${escapeHtml(t.testId)}')">
               <div class="test-header">
                 <div class="test-title">${escapeHtml(t.title)}</div>
                 <span class="badge ${t.status === "failed" || t.status === "timedOut" ? "badge-danger" : t.status === "passed" ? "badge-success" : "badge-flaky"}">${t.status.toUpperCase()}</span>

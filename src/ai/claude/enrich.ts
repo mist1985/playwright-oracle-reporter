@@ -8,6 +8,8 @@ import { PayloadSanitizer } from "../openai/sanitize";
 import { SchemaValidator } from "../openai/schema";
 import type { ClaudeConfig, ClaudeResponse } from "./types";
 import { ClaudeClient } from "./client";
+import { safeInt } from "../common/client-guards";
+import { selectTestsForAnalysis } from "../select";
 import { CONFIG_DEFAULTS, getEnvVar } from "../../common/constants";
 
 export interface EnrichmentContext {
@@ -15,6 +17,13 @@ export interface EnrichmentContext {
   tests: TestSummary[];
   telemetry: NormalizedSystemMetrics[];
   patterns: unknown[];
+}
+
+export interface EnrichOptions {
+  /** Cancels scheduling and in-flight requests (e.g. when the overall AI timeout fires). */
+  signal?: AbortSignal;
+  /** Overall time budget in ms; new work stops shortly before it is exhausted. */
+  budgetMs?: number;
 }
 
 export class ClaudeEnricher {
@@ -31,19 +40,16 @@ export class ClaudeEnricher {
     this.config = {
       apiKey,
       model: getEnvVar("CLAUDE_MODEL") ?? CONFIG_DEFAULTS.CLAUDE_MODEL,
-      timeoutMs: parseInt(
-        getEnvVar("CLAUDE_TIMEOUT_MS") ?? String(CONFIG_DEFAULTS.CLAUDE_TIMEOUT_MS),
-        10,
+      // Invalid values fall back to defaults: a NaN timeout would abort every
+      // request instantly and a NaN retry count would skip the request loop.
+      timeoutMs: safeInt(getEnvVar("CLAUDE_TIMEOUT_MS"), CONFIG_DEFAULTS.CLAUDE_TIMEOUT_MS, 1),
+      maxTokens: safeInt(getEnvVar("CLAUDE_MAX_TOKENS"), CONFIG_DEFAULTS.CLAUDE_MAX_TOKENS, 1),
+      maxInputChars: safeInt(
+        getEnvVar("CLAUDE_MAX_INPUT_CHARS"),
+        CONFIG_DEFAULTS.CLAUDE_MAX_INPUT_CHARS,
+        1,
       ),
-      maxTokens: parseInt(
-        getEnvVar("CLAUDE_MAX_TOKENS") ?? String(CONFIG_DEFAULTS.CLAUDE_MAX_TOKENS),
-        10,
-      ),
-      maxInputChars: parseInt(
-        getEnvVar("CLAUDE_MAX_INPUT_CHARS") ?? String(CONFIG_DEFAULTS.CLAUDE_MAX_INPUT_CHARS),
-        10,
-      ),
-      retries: parseInt(getEnvVar("CLAUDE_RETRIES") ?? String(CONFIG_DEFAULTS.CLAUDE_RETRIES), 10),
+      retries: safeInt(getEnvVar("CLAUDE_RETRIES"), CONFIG_DEFAULTS.CLAUDE_RETRIES, 0),
       anthropicVersion: "2023-06-01",
     };
     const logLevel = (getEnvVar("LOG_LEVEL") ?? "").toUpperCase();
@@ -70,12 +76,15 @@ export class ClaudeEnricher {
     };
   }
 
-  async enrich(context: EnrichmentContext): Promise<ClaudeResponse | null> {
+  async enrich(
+    context: EnrichmentContext,
+    options: EnrichOptions = {},
+  ): Promise<ClaudeResponse | null> {
+    const { signal } = options;
     try {
       // Get failed tests
-      const failedTests = context.tests.filter(
-        (t) => t.status === "failed" || t.status === "timedOut",
-      );
+      // Failed tests plus flaky tests (via their last failed attempt)
+      const failedTests = selectTestsForAnalysis(context.tests);
 
       this.partialTotalTests = failedTests.length;
       this.partialResponses = [];
@@ -96,8 +105,7 @@ export class ClaudeEnricher {
       const startedAt = Date.now();
       // Soft deadline: stop scheduling new work once we are close to the configured AI timeout.
       // (The outer layer may still enforce a hard timeout, but this prevents wasted work.)
-      const overallBudgetMsRaw = parseInt(getEnvVar("AI_TIMEOUT_MS") ?? "", 10);
-      const overallBudgetMs = Number.isFinite(overallBudgetMsRaw) ? overallBudgetMsRaw : 0;
+      const overallBudgetMs = options.budgetMs ?? safeInt(getEnvVar("AI_TIMEOUT_MS"), 0, 0);
       const softDeadlineMs =
         overallBudgetMs > 0
           ? startedAt + Math.max(0, overallBudgetMs - 2_000)
@@ -118,6 +126,14 @@ export class ClaudeEnricher {
       const responses = this.partialResponses;
       const worker = async (): Promise<void> => {
         while (nextIndex < failedTests.length) {
+          if (signal?.aborted) return;
+          if (!client.isAvailable()) {
+            if (this.debug) {
+              console.warn("[PW-AI] Claude client unavailable; stopping remaining analyses");
+            }
+            return;
+          }
+
           const i = nextIndex++;
 
           if (Date.now() >= softDeadlineMs) {
@@ -162,7 +178,7 @@ export class ClaudeEnricher {
             continue;
           }
 
-          const rawResult = await client.complete(singleTestPayload);
+          const rawResult = await client.complete(singleTestPayload, signal);
           if (!rawResult) {
             if (this.debug) {
               console.warn(`[PW-AI] No response for test: ${test.title}`);

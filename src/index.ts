@@ -22,6 +22,7 @@ import type {
   TestResult,
   FullResult,
   TestStep,
+  TestError,
 } from "@playwright/test/reporter";
 import * as fs from "fs";
 import * as path from "path";
@@ -43,18 +44,21 @@ import {
   type HistoryRecord,
   SCHEMA_VERSION,
 } from "./types";
-import { CONFIG_DEFAULTS, ENV_VARS, getEnvVar } from "./common/constants";
+import { CONFIG_DEFAULTS, getEnvVar } from "./common/constants";
 import { loadDotenvIfAvailable } from "./common/env";
 import { normalizeSupportedPlatform, shouldAutoOpenReport } from "./common/platform";
 import { REPORTER_VERSION } from "./version";
 import { SignatureGenerator } from "./ai/rules/signature";
+import { selectTestsForAnalysis } from "./ai/select";
+import { stripAnsi } from "./ai/redact";
+import { escapeHtml } from "./report/html-utils";
 
 // ── Report modules (extracted) ─────────────────────────────
 import { HtmlReportGenerator } from "./report/html/html-report-generator";
 import { MarkdownReportGenerator } from "./report/markdown-generator";
 import { ArtifactCopier } from "./report/artifact-copier";
 import { TerminalPresenter } from "./report/terminal-presenter";
-import type { TestSummary, RunSummary, ReportContext } from "./report/interfaces";
+import type { TestSummary, AttemptSummary, RunSummary, ReportContext } from "./report/interfaces";
 
 // ═══════════════════════════════════════════════════════════
 //  Configuration
@@ -84,14 +88,33 @@ const DEFAULT_AI_TIMEOUT_MS = 90_000;
 /** Maximum auto AI timeout when not explicitly configured (10 minutes). */
 const MAX_AUTO_AI_TIMEOUT_MS = 600_000;
 
-/** Promise that rejects after the given timeout. */
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+/**
+ * Promise that rejects after the given timeout.
+ * `onTimeout` runs when the timeout wins, so callers can cancel the underlying work
+ * (otherwise in-flight requests and retry timers would keep the process alive).
+ */
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+  onTimeout?: () => void,
+): Promise<T> {
   let timer: NodeJS.Timeout;
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${String(ms)}ms`)), ms);
+    timer = setTimeout(() => {
+      try {
+        onTimeout?.();
+      } catch {
+        // Cancellation is best-effort
+      }
+      reject(new Error(`${label} timed out after ${String(ms)}ms`));
+    }, ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
+
+/** Process-level listeners registered by any reporter instance (used to detect foreign listeners). */
+const ownSignalListeners = new Set<(...args: unknown[]) => void>();
 
 interface AIEnrichmentResult {
   provider: AIProvider | null;
@@ -116,7 +139,11 @@ export default class PlaywrightOracleReporter implements Reporter {
   private readonly config: OracleReporterConfig;
   private readonly aiTimeoutExplicit: boolean;
   private startTime = 0;
-  private readonly tests: TestSummary[] = [];
+  /** One entry per test (final attempt); retries are folded into `previousAttempts`. */
+  private tests: TestSummary[] = [];
+  /** test.id → index into `tests`, used to fold retries into a single entry. */
+  private readonly testIndexById = new Map<string, number>();
+  private globalErrors: Array<{ message: string; stack?: string }> = [];
   private runSummary: RunSummary;
   private readonly sampler: TelemetrySampler;
   private readonly historyStore: HistoryStore;
@@ -127,9 +154,21 @@ export default class PlaywrightOracleReporter implements Reporter {
   private baseReportOpened = false;
   private reportFinalized = false;
   private onEndPromise: Promise<void> | null = null;
+  /** Cancels AI enrichment when the overall AI timeout fires. */
+  private aiAbortController = new AbortController();
+  /** Effective overall AI budget for the current run (ms). */
+  private aiBudgetMs: number | undefined;
 
   /** Active enricher instance, kept for partial result recovery on timeout. */
   private activeEnricher: ClaudeEnricher | OpenAIEnricher | null = null;
+
+  /** Process listeners installed by this instance, removed once the report is final. */
+  private readonly processListeners: Array<{
+    event: "SIGINT" | "SIGTERM" | "exit";
+    listener: (...args: unknown[]) => void;
+  }> = [];
+  /** SIGINTs deferred to Playwright's own graceful-interrupt handling. */
+  private deferredSigints = 0;
 
   private isDebugEnabled(): boolean {
     const logLevel = (getEnvVar("LOG_LEVEL") ?? "").toUpperCase();
@@ -176,22 +215,14 @@ export default class PlaywrightOracleReporter implements Reporter {
       aiTimeoutMs: envAiTimeoutMs ?? optionAiTimeoutMs ?? DEFAULT_AI_TIMEOUT_MS,
     };
 
-    this.runSummary = {
-      startTime: new Date().toISOString(),
-      duration: 0,
-      totalTests: 0,
-      passed: 0,
-      failed: 0,
-      skipped: 0,
-      flaky: 0,
-      label: this.config.runLabel,
-    };
+    this.runSummary = this.createRunSummary();
 
     this.sampler = new TelemetrySampler(this.config.telemetryInterval);
     this.historyStore = new HistoryStore(this.config.historyDir);
 
-    // ── Graceful shutdown: finalize report on early termination ──
-    this.installSignalHandlers();
+    // Signal handlers are installed in onBegin (only once a run actually starts)
+    // and removed when the report is final, so idle/extra instances never
+    // intercept signals or leak listeners.
 
     if (this.isDebugEnabled()) {
       this.safeLog(
@@ -201,6 +232,19 @@ export default class PlaywrightOracleReporter implements Reporter {
         `[PW-AI] Env: PW_ORACLE_OPEN_REPORT=${String(process.env.PW_ORACLE_OPEN_REPORT ?? "(unset)")}, CI=${String(process.env.CI ?? "(unset)")}, ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY ? "set" : "(unset)"}`,
       );
     }
+  }
+
+  private createRunSummary(): RunSummary {
+    return {
+      startTime: new Date().toISOString(),
+      duration: 0,
+      totalTests: 0,
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      flaky: 0,
+      label: this.config.runLabel,
+    };
   }
 
   private computeAutoAiTimeoutMs(failedTestsCount: number): number {
@@ -228,6 +272,24 @@ export default class PlaywrightOracleReporter implements Reporter {
 
   /** Called once before running tests. */
   onBegin(_config: FullConfig, suite: Suite): void {
+    // Reset per-run state so a reused instance never mixes runs.
+    this.tests = [];
+    this.testIndexById.clear();
+    this.globalErrors = [];
+    this.currentTestIndex = 0;
+    this.aiAttempted = false;
+    this.aiProvider = null;
+    this.activeEnricher = null;
+    this.aiAbortController = new AbortController();
+    this.aiBudgetMs = undefined;
+    this.reportFinalized = false;
+    this.onEndPromise = null;
+    this.deferredSigints = 0;
+    this.runSummary = this.createRunSummary();
+    if (this.processListeners.length === 0) {
+      this.installSignalHandlers();
+    }
+
     this.startTime = Date.now();
     this.runSummary.startTime = new Date(this.startTime).toISOString();
     this.sampler.start();
@@ -236,14 +298,17 @@ export default class PlaywrightOracleReporter implements Reporter {
   }
 
   /** Called when a test starts. */
-  onTestBegin(test: TestCase, _result: TestResult): void {
-    this.currentTestIndex++;
+  onTestBegin(test: TestCase, result: TestResult): void {
+    // Retries are not new tests: keep the counter within [1, totalTests].
+    if (result.retry === 0) {
+      this.currentTestIndex++;
+    }
     this.terminal.printTestStart(
-      this.currentTestIndex,
+      Math.min(Math.max(this.currentTestIndex, 1), Math.max(this.totalTests, 1)),
       this.totalTests,
       path.relative(process.cwd(), test.location.file),
       test.location.line,
-      test.title,
+      result.retry > 0 ? `${test.title} (retry #${String(result.retry)})` : test.title,
     );
   }
 
@@ -260,6 +325,7 @@ export default class PlaywrightOracleReporter implements Reporter {
       const summary = PlaywrightOracleReporter.buildTestSummary(test, result);
 
       // Write body-only attachments (no path) to the artifacts dir so they appear in the report
+      const usedNames = new Set<string>();
       for (let i = 0; i < result.attachments.length; i++) {
         const att = result.attachments[i];
         if (!att.path && Buffer.isBuffer(att.body)) {
@@ -267,7 +333,14 @@ export default class PlaywrightOracleReporter implements Reporter {
             const ext = PlaywrightOracleReporter.extFromContentType(att.contentType);
             const safeName = att.name.replace(/[^a-zA-Z0-9._-]/g, "_");
             const safeId = test.id.replace(/[^a-zA-Z0-9_-]/g, "_");
-            const fileName = `${safeId}-${safeName}${ext}`;
+            // Retries and repeated attachment names must not overwrite each other.
+            // The first attempt keeps the historical `${id}-${name}${ext}` name.
+            const base = result.retry > 0 ? `${safeId}-retry${String(result.retry)}` : safeId;
+            let fileName = `${base}-${safeName}${ext}`;
+            for (let n = 2; usedNames.has(fileName); n++) {
+              fileName = `${base}-${safeName}-${String(n)}${ext}`;
+            }
+            usedNames.add(fileName);
             const artifactsDir = path.join(this.config.outputDir, "artifacts");
             this.ensureDir(artifactsDir);
             fs.writeFileSync(path.join(artifactsDir, fileName), att.body);
@@ -278,8 +351,7 @@ export default class PlaywrightOracleReporter implements Reporter {
         }
       }
 
-      this.tests.push(summary);
-      this.updateRunSummary(result);
+      this.recordTestResult(test.id, summary);
 
       if (result.status === "failed" || result.status === "timedOut") {
         this.terminal.printTestFailure(summary);
@@ -291,15 +363,33 @@ export default class PlaywrightOracleReporter implements Reporter {
     }
   }
 
+  /** Called on errors that are not attributed to a single test (config, load, worker crashes). */
+  onError(error: TestError): void {
+    try {
+      const message = stripAnsi(error.message ?? error.value ?? "Unknown error");
+      const stack = error.stack ? stripAnsi(error.stack) : undefined;
+      // Cap to keep run.json bounded even for pathological runs
+      if (this.globalErrors.length < 50) {
+        this.globalErrors.push({ message, stack });
+      }
+      this.safeLog(`\n❌ Error outside of tests: ${message}`);
+    } catch {
+      // Never break Playwright
+    }
+  }
+
   /** Called after all tests complete.  Orchestrates report generation. */
-  async onEnd(_result: FullResult): Promise<void> {
+  async onEnd(result: FullResult): Promise<void> {
     // Store the promise so signal handlers can await it
-    this.onEndPromise = this.onEndInner();
+    this.onEndPromise = this.onEndInner(result);
     return this.onEndPromise;
   }
 
-  private async onEndInner(): Promise<void> {
+  private async onEndInner(result?: FullResult): Promise<void> {
     try {
+      if (result?.status) {
+        this.runSummary.status = result.status;
+      }
       this.finaliseRunSummary();
       const metrics = this.sampler.stop();
 
@@ -336,92 +426,136 @@ export default class PlaywrightOracleReporter implements Reporter {
       );
       await this.generateFallbackReport(error);
       this.reportFinalized = true;
+    } finally {
+      // Report is final: hand signal handling back to Node.js/Playwright defaults.
+      this.removeProcessListeners();
     }
   }
 
   /**
-   * Install SIGTERM/SIGINT handlers that finalize the report
-   * if the process is killed before onEnd completes (e.g. global-teardown).
+   * Install SIGTERM/SIGINT/exit handlers that finalize the report
+   * if the process is killed before onEnd completes (e.g. CI cancellation).
+   *
+   * SIGINT is normally owned by Playwright, which interrupts the run gracefully
+   * and still calls `onEnd` for every reporter. Exiting from our own handler
+   * would pre-empt that and lose every reporter's output, so the first SIGINT is
+   * deferred whenever another listener (Playwright) is present. A second SIGINT,
+   * or a SIGINT with no other listener, is handled here as a forced stop.
+   *
+   * SIGTERM is not handled by Playwright's runner (Node would terminate
+   * immediately), so it is always handled here.
    */
   private installSignalHandlers(): void {
-    const handler = (signal: string) => {
-      this.safeLog(`\n⚡ Received ${signal} — finalizing report…`);
-
-      // If onEnd already ran and finalized, just exit
-      if (this.reportFinalized) {
-        process.exit(signal === "SIGTERM" ? 143 : 130);
+    const onSigint = () => {
+      const foreignListeners = process
+        .listeners("SIGINT")
+        .filter((l) => !ownSignalListeners.has(l as (...args: unknown[]) => void)).length;
+      if (foreignListeners > 0 && this.deferredSigints === 0) {
+        this.deferredSigints++;
         return;
       }
-
-      // If onEnd is in progress, wait for it (with a hard 5s cap)
-      if (this.onEndPromise) {
-        const forceTimer = setTimeout(() => process.exit(1), 5000);
-        this.onEndPromise
-          .catch(() => {})
-          .finally(() => {
-            clearTimeout(forceTimer);
-            process.exit(signal === "SIGTERM" ? 143 : 130);
-          });
-        return;
-      }
-
-      // onEnd never started — write whatever we have synchronously
-      try {
-        this.finaliseRunSummary();
-        this.sampler.stop();
-        this.ensureDir(this.config.outputDir);
-        this.ensureDir(path.join(this.config.outputDir, "data"));
-        fs.writeFileSync(
-          path.join(this.config.outputDir, "data", "run.json"),
-          JSON.stringify(this.runSummary, null, 2),
-          "utf-8",
-        );
-        fs.writeFileSync(
-          path.join(this.config.outputDir, "data", "tests.json"),
-          JSON.stringify(this.tests, null, 2),
-          "utf-8",
-        );
-        this.safeLog(
-          `📄 Emergency report data saved to: ${path.join(this.config.outputDir, "data")}`,
-        );
-      } catch {
-        // Best-effort only
-      }
-      process.exit(signal === "SIGTERM" ? 143 : 130);
+      this.handleTerminationSignal("SIGINT");
     };
-
-    process.once("SIGTERM", () => handler("SIGTERM"));
-    process.once("SIGINT", () => handler("SIGINT"));
+    const onSigterm = () => this.handleTerminationSignal("SIGTERM");
 
     // Safety net: if process.exit() is called externally (e.g. global-teardown),
     // log a warning so the user knows the reporter was interrupted.
-    process.once("exit", (code) => {
-      if (!this.reportFinalized) {
-        try {
-          // Synchronous writes only — async is not allowed in 'exit' handler
-          this.ensureDir(this.config.outputDir);
-          this.ensureDir(path.join(this.config.outputDir, "data"));
-          const exitDiag = {
-            warning: "Process exited before reporter finished (likely global-teardown force-exit)",
-            exitCode: code,
-            reportFinalized: this.reportFinalized,
-            timestamp: new Date().toISOString(),
-            hint: "Increase FORCE_EXIT_DELAY_MS or remove process.exit() from global-teardown",
-          };
-          fs.writeFileSync(
-            path.join(this.config.outputDir, "data", "exit-diagnostic.json"),
-            JSON.stringify(exitDiag, null, 2),
-            "utf-8",
-          );
-          console.log(
-            `\n⚠️  [PW-AI] Process exited (code ${String(code)}) before AI enrichment finished.`,
-          );
-          console.log(`   Fix: increase global-teardown timeout or set FORCE_EXIT_DELAY_MS=120000`);
-        } catch {
-          // Best-effort
-        }
+    const onExit = (code: unknown) => {
+      // Only relevant once a run has actually started.
+      if (this.reportFinalized || this.startTime === 0) return;
+      try {
+        // Synchronous writes only — async is not allowed in 'exit' handler
+        this.ensureDir(this.config.outputDir);
+        this.ensureDir(path.join(this.config.outputDir, "data"));
+        const exitDiag = {
+          warning: "Process exited before reporter finished (likely global-teardown force-exit)",
+          exitCode: code,
+          reportFinalized: this.reportFinalized,
+          timestamp: new Date().toISOString(),
+          hint: "Increase FORCE_EXIT_DELAY_MS or remove process.exit() from global-teardown",
+        };
+        fs.writeFileSync(
+          path.join(this.config.outputDir, "data", "exit-diagnostic.json"),
+          JSON.stringify(exitDiag, null, 2),
+          "utf-8",
+        );
+        console.log(
+          `\n⚠️  [PW-AI] Process exited (code ${String(code)}) before the Oracle report was finalized.`,
+        );
+        console.log(`   Fix: increase global-teardown timeout or set FORCE_EXIT_DELAY_MS=120000`);
+      } catch {
+        // Best-effort
       }
-    });
+    };
+
+    this.addProcessListener("SIGINT", onSigint);
+    this.addProcessListener("SIGTERM", onSigterm);
+    this.addProcessListener("exit", onExit as (...args: unknown[]) => void);
+  }
+
+  private addProcessListener(
+    event: "SIGINT" | "SIGTERM" | "exit",
+    listener: (...args: unknown[]) => void,
+  ): void {
+    ownSignalListeners.add(listener);
+    this.processListeners.push({ event, listener });
+    process.on(event, listener);
+  }
+
+  private removeProcessListeners(): void {
+    for (const { event, listener } of this.processListeners) {
+      process.removeListener(event, listener);
+      ownSignalListeners.delete(listener);
+    }
+    this.processListeners.length = 0;
+  }
+
+  /** Finalize what we can, then exit with the conventional signal exit code. */
+  private handleTerminationSignal(signal: "SIGINT" | "SIGTERM"): void {
+    const exitCode = signal === "SIGTERM" ? 143 : 130;
+    this.safeLog(`\n⚡ Received ${signal} — finalizing report…`);
+
+    // If onEnd already ran and finalized, just exit
+    if (this.reportFinalized) {
+      process.exit(exitCode);
+      return;
+    }
+
+    // If onEnd is in progress, wait for it (with a hard 5s cap)
+    if (this.onEndPromise) {
+      const forceTimer = setTimeout(() => process.exit(1), 5000);
+      this.onEndPromise
+        .catch(() => {})
+        .finally(() => {
+          clearTimeout(forceTimer);
+          process.exit(exitCode);
+        });
+      return;
+    }
+
+    // onEnd never started — write whatever we have synchronously
+    try {
+      this.finaliseRunSummary();
+      this.sampler.stop();
+      this.ensureDir(this.config.outputDir);
+      this.ensureDir(path.join(this.config.outputDir, "data"));
+      fs.writeFileSync(
+        path.join(this.config.outputDir, "data", "run.json"),
+        JSON.stringify(this.runSummary, null, 2),
+        "utf-8",
+      );
+      fs.writeFileSync(
+        path.join(this.config.outputDir, "data", "tests.json"),
+        JSON.stringify(this.tests, null, 2),
+        "utf-8",
+      );
+      this.safeLog(
+        `📄 Emergency report data saved to: ${path.join(this.config.outputDir, "data")}`,
+      );
+    } catch {
+      // Best-effort only
+    }
+    process.exit(exitCode);
   }
 
   // ═══════════════════════════════════════════════════════
@@ -508,7 +642,10 @@ export default class PlaywrightOracleReporter implements Reporter {
     };
 
     const html = await this.htmlGenerator.generate(context);
-    await fs.promises.writeFile(path.join(this.config.outputDir, "index.html"), html, "utf-8");
+    await PlaywrightOracleReporter.writeFileAtomic(
+      path.join(this.config.outputDir, "index.html"),
+      html,
+    );
 
     this.safeLog(`📄 Base report generated: ${path.join(this.config.outputDir, "index.html")}`);
 
@@ -543,15 +680,12 @@ export default class PlaywrightOracleReporter implements Reporter {
     let partialTotalCount = 0;
 
     try {
-      const failedTestsCount = this.tests.filter(
-        (t) => t.status === "failed" || t.status === "timedOut",
-      ).length;
+      const failedTestsCount = selectTestsForAnalysis(this.tests).length;
       const effectiveAiTimeoutMs = this.aiTimeoutExplicit
         ? this.config.aiTimeoutMs
         : this.computeAutoAiTimeoutMs(failedTestsCount);
 
-      // Propagate to env so enrichers can enforce a soft deadline and preserve partial progress.
-      process.env[ENV_VARS.AI_TIMEOUT_MS] = String(effectiveAiTimeoutMs);
+      this.aiBudgetMs = effectiveAiTimeoutMs;
 
       if (this.isDebugEnabled() && !this.aiTimeoutExplicit) {
         this.safeLog(
@@ -564,6 +698,8 @@ export default class PlaywrightOracleReporter implements Reporter {
         this.tryAIEnrichment(metrics, patterns),
         effectiveAiTimeoutMs,
         "AI enrichment",
+        // Cancel in-flight requests and retry waits so nothing outlives the timeout.
+        () => this.aiAbortController.abort(),
       );
       aiProvider = enrichmentResult.provider;
       aiResponse = enrichmentResult.response;
@@ -639,10 +775,9 @@ export default class PlaywrightOracleReporter implements Reporter {
         aiProvider,
       },
     });
-    await fs.promises.writeFile(
+    await PlaywrightOracleReporter.writeFileAtomic(
       path.join(this.config.outputDir, "index.html"),
       htmlWithAI,
-      "utf-8",
     );
 
     // ── Markdown report ─────────────────────────────────
@@ -739,12 +874,15 @@ export default class PlaywrightOracleReporter implements Reporter {
   ): Promise<AIResponse | null> {
     const enricher = new OpenAIEnricher(apiKey);
     this.activeEnricher = enricher;
-    return enricher.enrich({
-      run: this.runSummary,
-      tests: this.tests,
-      telemetry: metrics,
-      patterns: patterns.flakyTests as unknown[],
-    });
+    return enricher.enrich(
+      {
+        run: this.runSummary,
+        tests: this.tests,
+        telemetry: metrics,
+        patterns: patterns.flakyTests as unknown[],
+      },
+      { signal: this.aiAbortController.signal, budgetMs: this.aiBudgetMs },
+    );
   }
 
   /** Create a Claude enricher, store it for partial-result recovery, and run enrichment. */
@@ -755,12 +893,15 @@ export default class PlaywrightOracleReporter implements Reporter {
   ): Promise<AIResponse | null> {
     const enricher = new ClaudeEnricher(apiKey);
     this.activeEnricher = enricher;
-    return enricher.enrich({
-      run: this.runSummary,
-      tests: this.tests,
-      telemetry: metrics,
-      patterns: patterns.flakyTests as unknown[],
-    });
+    return enricher.enrich(
+      {
+        run: this.runSummary,
+        tests: this.tests,
+        telemetry: metrics,
+        patterns: patterns.flakyTests as unknown[],
+      },
+      { signal: this.aiAbortController.signal, budgetMs: this.aiBudgetMs },
+    );
   }
 
   private resolveAIProviders(): AIProvider[] {
@@ -805,7 +946,20 @@ export default class PlaywrightOracleReporter implements Reporter {
     return map[ct] ?? "";
   }
 
+  /** Playwright project name for a test, if any (tolerates partial test doubles). */
+  private static projectNameOf(test: TestCase): string | undefined {
+    try {
+      const parent = test.parent as Suite | undefined;
+      const name = parent?.project()?.name;
+      // Empty project names are treated as "no project"
+      return name !== undefined && name.length > 0 ? name : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private static buildTestSummary(test: TestCase, result: TestResult): TestSummary {
+    const projectName = PlaywrightOracleReporter.projectNameOf(test);
     const summary: TestSummary = {
       testId: test.id,
       title: test.title,
@@ -821,6 +975,7 @@ export default class PlaywrightOracleReporter implements Reporter {
       })),
       retries: result.retry,
       startTime: result.startTime.getTime(),
+      ...(projectName ? { projectName } : {}),
     };
 
     if (result.error) {
@@ -828,31 +983,78 @@ export default class PlaywrightOracleReporter implements Reporter {
         message: result.error.message ?? "Unknown error",
         stack: result.error.stack,
       };
-      const loc = (result.error as Record<string, unknown>).location;
-      if (loc && typeof loc === "object" && "line" in (loc as Record<string, unknown>)) {
-        summary.line = (loc as { line: number }).line;
+      // Point at the failing line, but only when it is in the test's own file;
+      // a location inside a helper file would not match `file`.
+      const loc = (result.error as Record<string, unknown>).location as
+        | { file?: unknown; line?: unknown }
+        | undefined;
+      if (
+        loc &&
+        typeof loc === "object" &&
+        typeof loc.line === "number" &&
+        (loc.file === undefined || loc.file === test.location.file)
+      ) {
+        summary.line = loc.line;
       }
     }
 
     return summary;
   }
 
-  /** Increment pass/fail/skip/flaky counters from a test result. */
-  private updateRunSummary(result: TestResult): void {
-    this.runSummary.totalTests++;
+  /**
+   * Record a test result, folding retries of the same test into one entry.
+   *
+   * Playwright calls `onTestEnd` once per attempt. Counting each attempt would
+   * report a flaky test as failed *and* passed, inflate the total, and list the
+   * test twice. The final attempt defines the test's status; earlier attempts are
+   * kept in `previousAttempts` so their errors and artifacts are not lost.
+   */
+  private recordTestResult(testId: string, summary: TestSummary): void {
+    const existingIndex = this.testIndexById.get(testId);
 
-    switch (result.status) {
+    if (existingIndex === undefined) {
+      this.testIndexById.set(testId, this.tests.length);
+      this.tests.push(summary);
+      this.countTest(summary, 1);
+      return;
+    }
+
+    const previous = this.tests[existingIndex];
+    const { previousAttempts: earlier, ...previousAttempt } = previous;
+    const attempt: AttemptSummary = {
+      retry: previousAttempt.retries,
+      status: previousAttempt.status,
+      duration: previousAttempt.duration,
+      startTime: previousAttempt.startTime,
+      error: previousAttempt.error,
+      attachments: previousAttempt.attachments,
+    };
+    const merged: TestSummary = {
+      ...summary,
+      previousAttempts: [...(earlier ?? []), attempt],
+    };
+
+    this.countTest(previous, -1);
+    this.tests[existingIndex] = merged;
+    this.countTest(merged, 1);
+  }
+
+  /** Add (`delta = 1`) or remove (`delta = -1`) a test's contribution to the run counters. */
+  private countTest(test: TestSummary, delta: 1 | -1): void {
+    this.runSummary.totalTests += delta;
+
+    switch (test.status) {
       case "passed":
-        this.runSummary.passed++;
-        if (result.retry > 0) this.runSummary.flaky++;
+        this.runSummary.passed += delta;
+        if (test.retries > 0) this.runSummary.flaky += delta;
         break;
       case "failed":
       case "timedOut":
       case "interrupted":
-        this.runSummary.failed++;
+        this.runSummary.failed += delta;
         break;
       case "skipped":
-        this.runSummary.skipped++;
+        this.runSummary.skipped += delta;
         break;
     }
   }
@@ -862,6 +1064,9 @@ export default class PlaywrightOracleReporter implements Reporter {
     const endTime = Date.now();
     this.runSummary.endTime = new Date(endTime).toISOString();
     this.runSummary.duration = endTime - this.startTime;
+    if (this.globalErrors.length > 0) {
+      this.runSummary.globalErrors = [...this.globalErrors];
+    }
   }
 
   /** Build a HistoryRecord for the JSONL store. */
@@ -901,7 +1106,7 @@ export default class PlaywrightOracleReporter implements Reporter {
       testId: t.testId,
       title: t.title,
       file: t.file || null,
-      projectName: null,
+      projectName: t.projectName ?? null,
       status: t.status as TestResultLite["status"],
       durationMs: t.duration,
       retries: t.retries,
@@ -929,9 +1134,9 @@ export default class PlaywrightOracleReporter implements Reporter {
 <body style="font-family: system-ui; padding: 2rem; max-width: 800px; margin: 0 auto;">
   <h1>⚠️ Report Generation Error</h1>
   <p>The reporter encountered an error but did not break your tests.</p>
-  <pre style="background: #f5f5f5; padding: 1rem; border-radius: 4px;">${
-    error instanceof Error ? error.message : String(error)
-  }</pre>
+  <pre style="background: #f5f5f5; padding: 1rem; border-radius: 4px;">${escapeHtml(
+    error instanceof Error ? error.message : String(error),
+  )}</pre>
   <p><strong>Tests Summary:</strong> ${String(this.runSummary.totalTests)} total, ${String(this.runSummary.passed)} passed, ${String(this.runSummary.failed)} failed</p>
   <footer style="margin-top: 4rem; padding: 2.5rem 1rem 1.5rem; border-top: 1px solid #e5e7eb; text-align: center; color: #6b7280; font-size: 0.875rem;">
     <div style="margin-bottom: 0.625rem; font-weight: 600; color: #1e293b;">
@@ -953,7 +1158,23 @@ export default class PlaywrightOracleReporter implements Reporter {
   /** Write JSON data to the report output directory. */
   private async writeJSON(relativePath: string, data: unknown): Promise<void> {
     const filePath = path.join(this.config.outputDir, relativePath);
-    await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), "utf-8");
+    await PlaywrightOracleReporter.writeFileAtomic(filePath, JSON.stringify(data, null, 2));
+  }
+
+  /**
+   * Write via temp file + rename so readers (CI artifact upload, dashboards)
+   * never observe a half-written file if the process is killed mid-write.
+   * Falls back to a direct write when rename is not possible (e.g. Windows locks).
+   */
+  private static async writeFileAtomic(filePath: string, content: string): Promise<void> {
+    const tempPath = `${filePath}.${String(process.pid)}.tmp`;
+    try {
+      await fs.promises.writeFile(tempPath, content, "utf-8");
+      await fs.promises.rename(tempPath, filePath);
+    } catch {
+      await fs.promises.unlink(tempPath).catch(() => undefined);
+      await fs.promises.writeFile(filePath, content, "utf-8");
+    }
   }
 
   /** Ensure a directory exists, creating recursively if needed. */
@@ -996,6 +1217,13 @@ export default class PlaywrightOracleReporter implements Reporter {
       } else {
         return;
       }
+      // spawn reports failures (e.g. xdg-open not installed) asynchronously via
+      // 'error'; without a listener that event would crash the Playwright process.
+      child.on("error", (error: Error) => {
+        if (this.isDebugEnabled()) {
+          this.safeLog(`[PW-AI] Auto-open failed: ${error.message}`);
+        }
+      });
       child.unref();
     } catch (error: unknown) {
       // Opening browser is a nice-to-have, not critical

@@ -7,6 +7,8 @@ import type { NormalizedSystemMetrics } from "../../telemetry/collectors/common"
 import type { RunSummary, TestSummary } from "../../report/interfaces";
 import { PayloadSanitizer } from "./sanitize";
 import { OpenAIClient } from "./client";
+import { safeInt } from "../common/client-guards";
+import { selectTestsForAnalysis } from "../select";
 import { SchemaValidator } from "./schema";
 import { OpenAIResponse, OpenAIConfig } from "./types";
 import { CONFIG_DEFAULTS, getEnvVar } from "../../common/constants";
@@ -16,6 +18,13 @@ export interface EnrichmentContext {
   tests: TestSummary[];
   telemetry: NormalizedSystemMetrics[];
   patterns: unknown[];
+}
+
+export interface EnrichOptions {
+  /** Cancels scheduling and in-flight requests (e.g. when the overall AI timeout fires). */
+  signal?: AbortSignal;
+  /** Overall time budget in ms; new work stops shortly before it is exhausted. */
+  budgetMs?: number;
 }
 
 /**
@@ -42,19 +51,16 @@ export class OpenAIEnricher {
     this.config = {
       apiKey,
       model: getEnvVar("OPENAI_MODEL") ?? CONFIG_DEFAULTS.OPENAI_MODEL,
-      timeoutMs: parseInt(
-        getEnvVar("OPENAI_TIMEOUT_MS") ?? String(CONFIG_DEFAULTS.OPENAI_TIMEOUT_MS),
-        10,
+      // Invalid values fall back to defaults: a NaN timeout would abort every
+      // request instantly and a NaN retry count would skip the request loop.
+      timeoutMs: safeInt(getEnvVar("OPENAI_TIMEOUT_MS"), CONFIG_DEFAULTS.OPENAI_TIMEOUT_MS, 1),
+      maxTokens: safeInt(getEnvVar("OPENAI_MAX_TOKENS"), CONFIG_DEFAULTS.OPENAI_MAX_TOKENS, 1),
+      maxInputChars: safeInt(
+        getEnvVar("OPENAI_MAX_INPUT_CHARS"),
+        CONFIG_DEFAULTS.OPENAI_MAX_INPUT_CHARS,
+        1,
       ),
-      maxTokens: parseInt(
-        getEnvVar("OPENAI_MAX_TOKENS") ?? String(CONFIG_DEFAULTS.OPENAI_MAX_TOKENS),
-        10,
-      ),
-      maxInputChars: parseInt(
-        getEnvVar("OPENAI_MAX_INPUT_CHARS") ?? String(CONFIG_DEFAULTS.OPENAI_MAX_INPUT_CHARS),
-        10,
-      ),
-      retries: parseInt(getEnvVar("OPENAI_RETRIES") ?? String(CONFIG_DEFAULTS.OPENAI_RETRIES), 10),
+      retries: safeInt(getEnvVar("OPENAI_RETRIES"), CONFIG_DEFAULTS.OPENAI_RETRIES, 0),
     };
     const logLevel = (getEnvVar("LOG_LEVEL") ?? "").toUpperCase();
     this.debug = logLevel === "DEBUG" || process.env.PW_AI_DEBUG === "true";
@@ -86,12 +92,15 @@ export class OpenAIEnricher {
    * @param context - Test run context including tests, telemetry, and patterns
    * @returns AI-generated analysis response, or null if enrichment fails/skipped
    */
-  async enrich(context: EnrichmentContext): Promise<OpenAIResponse | null> {
+  async enrich(
+    context: EnrichmentContext,
+    options: EnrichOptions = {},
+  ): Promise<OpenAIResponse | null> {
+    const { signal } = options;
     try {
       // Get failed tests
-      const failedTests = context.tests.filter(
-        (t) => t.status === "failed" || t.status === "timedOut",
-      );
+      // Failed tests plus flaky tests (via their last failed attempt)
+      const failedTests = selectTestsForAnalysis(context.tests);
 
       this.partialTotalTests = failedTests.length;
       this.partialResponses = [];
@@ -107,7 +116,34 @@ export class OpenAIEnricher {
       // Analyze each test individually
       // `responses` aliases the instance array so partial results survive an external abort.
       const responses = this.partialResponses;
+      // A single client so rate limiting, the circuit breaker and fail-fast on
+      // fatal errors (e.g. an invalid key) apply across all tests.
+      const client = new OpenAIClient(this.config);
+
+      const startedAt = Date.now();
+      const overallBudgetMs = options.budgetMs ?? safeInt(getEnvVar("AI_TIMEOUT_MS"), 0, 0);
+      const softDeadlineMs =
+        overallBudgetMs > 0
+          ? startedAt + Math.max(0, overallBudgetMs - 2_000)
+          : Number.POSITIVE_INFINITY;
+
       for (let i = 0; i < failedTests.length; i++) {
+        if (signal?.aborted) break;
+        if (!client.isAvailable()) {
+          if (this.debug) {
+            console.warn("[PW-AI] OpenAI client unavailable; stopping remaining analyses");
+          }
+          break;
+        }
+        if (Date.now() >= softDeadlineMs) {
+          if (this.debug) {
+            console.warn(
+              `[PW-AI] Reached soft deadline; stopping new test analyses at ${String(i)}/${String(failedTests.length)}`,
+            );
+          }
+          break;
+        }
+
         const test = failedTests[i];
         if (this.debug) {
           console.log(
@@ -133,8 +169,7 @@ export class OpenAIEnricher {
         }
 
         // Call API
-        const client = new OpenAIClient(this.config);
-        const rawResult = await client.complete(singleTestPayload);
+        const rawResult = await client.complete(singleTestPayload, signal);
 
         if (!rawResult) {
           if (this.debug) {

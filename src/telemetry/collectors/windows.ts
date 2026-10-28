@@ -2,45 +2,104 @@
  * Playwright Oracle Reporter - Windows Telemetry Collector
  * Copyright (c) 2026 Mihajlo Stojanovski
  *
- * Enterprise-grade Windows system metrics collection with:
- * - Cross-platform command execution with timeouts
- * - Structured logging for diagnostics
- * - Type-safe error handling
- * - Constant-based configuration
+ * Collects Windows metrics with Node.js APIs only — no subprocesses.
+ *
+ * Earlier versions shelled out to `wmic` three times per sample. WMIC is
+ * deprecated and no longer installed by default on recent Windows 11 builds,
+ * and spawning processes every few seconds adds measurable overhead to the
+ * very test runs being observed. Node.js exposes the same data directly:
+ *
+ * - CPU: user/system/idle split from `os.cpus()` time deltas between samples
+ *   (real values instead of the old estimated 80/20 user/system split)
+ * - Memory: `os.freemem()` (already provided by the common collector)
+ * - Disk: `fs.statfsSync()` on the drive holding the working directory
  *
  * @module telemetry/collectors/windows
  */
 
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { MetricsPatch } from "./common";
-import { executeCommand, isWindows } from "../../common/platform";
+import { isWindows } from "../../common/platform";
 import { getLogger } from "../../common/logger";
-import { TelemetryError } from "../../common/errors";
-import { TIMEOUTS, BYTES } from "../../common/constants";
+import { BYTES } from "../../common/constants";
 
 const logger = getLogger();
 
-/**
- * CPU usage estimation factors for Windows
- * Windows WMIC provides total CPU load, we estimate user/system split
- */
-const CPU_ESTIMATION = {
-  SYSTEM_FACTOR: 0.2, // Assume 20% system overhead for high load
-  USER_FACTOR: 0.8, // Remaining 80% assumed user processes
-} as const;
+/** Aggregate CPU times across all cores. */
+export interface CpuTimes {
+  user: number;
+  sys: number;
+  idle: number;
+  total: number;
+}
+
+/** Previous CPU snapshot, used to compute utilisation over the sampling interval. */
+let previousCpuTimes: CpuTimes | null = null;
 
 /**
- * Collects Windows-specific system metrics
- *
- * @returns Metrics patch containing CPU, memory, and disk usage
- * @remarks Uses WMIC commands which are available on all Windows versions
+ * Sum `os.cpus()` times across all cores.
  */
-export async function collectWindowsMetrics(): Promise<MetricsPatch> {
+export function readCpuTimes(cpus: ReadonlyArray<os.CpuInfo> = os.cpus()): CpuTimes {
+  const acc: CpuTimes = { user: 0, sys: 0, idle: 0, total: 0 };
+  for (const cpu of cpus) {
+    const { user, nice, sys, idle, irq } = cpu.times;
+    acc.user += user + nice;
+    acc.sys += sys + irq;
+    acc.idle += idle;
+    acc.total += user + nice + sys + idle + irq;
+  }
+  return acc;
+}
+
+/**
+ * Compute user/system/idle percentages between two CPU snapshots.
+ * Returns `null` when the interval is empty (no elapsed CPU time).
+ */
+export function computeCpuPercentages(
+  prev: CpuTimes,
+  next: CpuTimes,
+): { userPct: number; systemPct: number; idlePct: number } | null {
+  const total = next.total - prev.total;
+  if (!(total > 0)) return null;
+  const round = (n: number) => Math.round(Math.min(100, Math.max(0, n)) * 100) / 100;
+  return {
+    userPct: round(((next.user - prev.user) / total) * 100),
+    systemPct: round(((next.sys - prev.sys) / total) * 100),
+    idlePct: round(((next.idle - prev.idle) / total) * 100),
+  };
+}
+
+/** Free space (GB) on the drive containing the working directory, or null. */
+function readDiskFreeGb(): number | null {
+  const statfsSync = (
+    fs as typeof fs & {
+      statfsSync?: (p: string) => { bavail: number; bsize: number };
+    }
+  ).statfsSync;
+  if (typeof statfsSync !== "function") return null;
+
+  try {
+    const stats = statfsSync(path.parse(process.cwd()).root || process.cwd());
+    const freeBytes = stats.bavail * stats.bsize;
+    if (!Number.isFinite(freeBytes)) return null;
+    return Math.round((freeBytes / BYTES.GB) * 100) / 100;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Collects Windows-specific system metrics.
+ *
+ * @returns Metrics patch containing CPU and disk usage
+ */
+export function collectWindowsMetrics(): Promise<MetricsPatch> {
   // Skip silently if not running on Windows (called every sample interval)
   if (!isWindows()) {
-    return {};
+    return Promise.resolve({});
   }
-
-  logger.debug("Starting Windows metrics collection");
 
   const patch: MetricsPatch = {
     cpu: {},
@@ -49,109 +108,25 @@ export async function collectWindowsMetrics(): Promise<MetricsPatch> {
   };
 
   try {
-    // 1. Disk Usage - Query C: drive free space
-    try {
-      logger.debug("Collecting Windows disk metrics");
-      const result = await executeCommand(
-        "wmic logicaldisk where \"DeviceID='C:'\" get FreeSpace /Value",
-        TIMEOUTS.SHELL_COMMAND_MS,
-      );
-
-      if (result.exitCode === 0) {
-        const match = result.stdout.match(/FreeSpace=(\d+)/);
-
-        if (match?.[1]) {
-          const freeBytes = parseInt(match[1], 10);
-          if (!isNaN(freeBytes)) {
-            patch.disk = {
-              freeGb: Math.round((freeBytes / BYTES.GB) * 100) / 100,
-            };
-            logger.debug("Windows disk metrics collected", {
-              freeGb: patch.disk.freeGb,
-            });
-          }
-        }
-      } else {
-        logger.warn("WMIC disk query failed", { stderr: result.stderr });
-      }
-    } catch (error) {
-      logger.warn("Failed to collect Windows disk metrics", { error });
-      // Continue to next metric
+    const current = readCpuTimes();
+    if (previousCpuTimes) {
+      const pct = computeCpuPercentages(previousCpuTimes, current);
+      if (pct) patch.cpu = pct;
     }
-
-    // 2. CPU Usage - Query CPU load percentage
-    try {
-      logger.debug("Collecting Windows CPU metrics");
-      const result = await executeCommand(
-        "wmic cpu get LoadPercentage /Value",
-        TIMEOUTS.SHELL_COMMAND_MS,
-      );
-
-      if (result.exitCode === 0) {
-        const match = result.stdout.match(/LoadPercentage=(\d+)/);
-
-        if (match?.[1]) {
-          const loadPct = parseInt(match[1], 10);
-          if (!isNaN(loadPct)) {
-            // Approximate sys/user split since WMIC only gives total load
-            const systemPct = Math.round(loadPct * CPU_ESTIMATION.SYSTEM_FACTOR);
-            const userPct = Math.round(loadPct * CPU_ESTIMATION.USER_FACTOR);
-            const idlePct = 100 - loadPct;
-
-            patch.cpu = {
-              userPct,
-              systemPct,
-              idlePct,
-            };
-            logger.debug("Windows CPU metrics collected", patch.cpu);
-          }
-        }
-      } else {
-        logger.warn("WMIC CPU query failed", { stderr: result.stderr });
-      }
-    } catch (error) {
-      logger.warn("Failed to collect Windows CPU metrics", { error });
-      // Continue to next metric
-    }
-
-    // 3. Memory - Query free physical memory
-    try {
-      logger.debug("Collecting Windows memory metrics");
-      const result = await executeCommand(
-        "wmic OS get FreePhysicalMemory /Value",
-        TIMEOUTS.SHELL_COMMAND_MS,
-      );
-
-      if (result.exitCode === 0) {
-        const match = result.stdout.match(/FreePhysicalMemory=(\d+)/); // Returns in KB
-
-        if (match?.[1]) {
-          const freeKb = parseInt(match[1], 10);
-          if (!isNaN(freeKb)) {
-            patch.memory = {
-              freeMb: Math.round(freeKb / BYTES.KB),
-            };
-            logger.debug("Windows memory metrics collected", {
-              freeMb: patch.memory.freeMb,
-            });
-          }
-        }
-      } else {
-        logger.warn("WMIC memory query failed", { stderr: result.stderr });
-      }
-    } catch (error) {
-      logger.warn("Failed to collect Windows memory metrics", { error });
-      // Continue to next metric
-    }
-
-    logger.info("Windows metrics collection completed", patch);
+    previousCpuTimes = current;
   } catch (error) {
-    logger.error("Windows metrics collection failed globally", { error });
-    throw new TelemetryError(
-      "Failed to collect Windows telemetry metrics",
-      error instanceof Error ? error.message : String(error),
-    );
+    logger.debug("Failed to collect Windows CPU metrics", { error });
   }
 
-  return patch;
+  const freeGb = readDiskFreeGb();
+  if (freeGb !== null) {
+    patch.disk = { freeGb };
+  }
+
+  return Promise.resolve(patch);
+}
+
+/** @internal Reset the CPU baseline (tests only). */
+export function resetWindowsCpuBaseline(): void {
+  previousCpuTimes = null;
 }
